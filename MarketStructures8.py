@@ -1,16 +1,19 @@
+# standard modules
 import os
-
-import requests
-import webbrowser
 import time
 import csv
+from datetime import datetime
+
+# third party modules
+import requests
+from requests import ReadTimeout
+from requests_oauthlib import OAuth2Session
 import pandas as pd
 import json
-from requests import ReadTimeout
-from datetime import datetime
-from requests_oauthlib import OAuth2Session
+import webbrowser
 from dotenv import load_dotenv
 
+#local module
 from file_cleanup import rename_move_and_archive_csv
 
 # LICENSE
@@ -35,7 +38,7 @@ load_dotenv()
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 # Currently set for the 4-HWWF Keepstar. You can enter another structure ID for a player-owned structure that you have access to.
-structure_id = 1035466617946
+structure_id = 1035466617946  #4-HWWF Keepstar
 
 # set variables for ESI requests
 CLIENT_ID = os.getenv('CLIENT_ID')  # stored in you .env file
@@ -43,7 +46,10 @@ SECRET_KEY = os.getenv('SECRET_KEY')  # stored in you .env file
 REDIRECT_URI = 'http://localhost:8000/callback'  #workaround so we don't have to set up a real server
 AUTHORIZATION_URL = 'https://login.eveonline.com/v2/oauth/authorize'
 TOKEN_URL = 'https://login.eveonline.com/v2/oauth/token'
-MARKET_STRUCTURE_URL = f'https://esi.evetech.net/latest/markets/structures/{structure_id}/?page='
+ESI_Base_URL = 'https://esi.evetech.net/latest'
+MARKET_STRUCTURE_URL = f'{ESI_Base_URL}/markets/structures/{structure_id}/?page='
+market_history_url = f'{ESI_Base_URL}/markets/10000003/history/?datasource=tranquility&type_id='
+
 SCOPE = [
     'esi-markets.structure_markets.v1']  #make sure you have this scope enabled in you ESI Dev Application settings.
 token_file = 'token.json'
@@ -133,6 +139,7 @@ def get_token():
 # Functions: Fetch Market Structure Orders
 #-----------------------------------------------
 def fetch_market_orders(test_mode):
+    #test_mode: True for an abbreviated ESI pull. False for normal operation.
 
     #initiates the oath2 flow
     token = get_token()
@@ -153,6 +160,7 @@ def fetch_market_orders(test_mode):
     errorlog = {}
 
     while page <= max_pages:
+
         response = requests.get(MARKET_STRUCTURE_URL + str(page), headers=headers)
         print(f"Fetching page {page}, status code: {response.status_code}")  # Track status
 
@@ -190,7 +198,7 @@ def fetch_market_orders(test_mode):
 
             if tries < 5:
                 tries += 1
-                time.sleep(.5)
+                time.sleep(3)  #wait three seconds before trying again
                 continue
             else:
                 print(f'Reached the 5th try and giving up on page {page}.')
@@ -217,7 +225,6 @@ def fetch_market_orders(test_mode):
 
         print('-------------------------')
         print(f"Now fetching page {page}...")
-        time.sleep(.5)
 
     print(f"Retrieval complete. Fetched {total_pages}. Total orders: {len(all_orders)}")
     print(f"Received {error_count} errors. After {total_tries} total tries.")
@@ -277,7 +284,6 @@ def get_type_ids(datafile):
 # update market history
 def fetch_market_history(type_id_list):
     timeout = 10
-    market_history_url = 'https://esi.evetech.net/latest/markets/10000003/history/?datasource=tranquility&type_id='
 
     headers = {
         'Content-Type': 'application/json',
@@ -288,6 +294,8 @@ def fetch_market_history(type_id_list):
     errorcount = 0
     tries = 0
     successful_returns = 0
+    attempts = 0
+
     print("Updating market history...")
 
     # Iterate over type_ids to fetch market history for 4-HWWF
@@ -295,9 +303,12 @@ def fetch_market_history(type_id_list):
         while page <= max_pages:
             item = type_id_list[type_id]
 
+
             try:
                 response = requests.get(market_history_url + str(item), headers=headers, timeout=timeout)
                 print(f"Fetching type_id: {item}, status code: {response.status_code}")  # Add this line to track status
+                attempts += 1
+
             except ReadTimeout:
                 print(f"Request timed out for page {page}, item {item}. Retrying...")
                 if tries < 5:
@@ -314,8 +325,9 @@ def fetch_market_history(type_id_list):
                 max_pages = 1
 
             if response.status_code != 200:
+                request_end_time = datetime.now()
                 print('error detected, retrying in 3 seconds...')
-                time.sleep(3)
+                time.sleep(3)  # wait three seconds before trying again
                 errorcount += 1
                 if tries < 5:
                     tries += 1
@@ -339,13 +351,13 @@ def fetch_market_history(type_id_list):
             max_pages = 1
 
         print(
-            f'Type id {item} retrieved successfully. So far, {successful_returns} items retrieved successfully. With {errorcount} errors.')
+            f'Type id {item} retrieved successfully. So far, {successful_returns}/{attempts} items retrieved successfully. With {errorcount} errors.')
         print('-------------------------')
 
         page = 1
         max_pages = 1
+    print(f'total attempts: {attempts}')
 
-        time.sleep(.1)
     return all_history
 
 
@@ -446,15 +458,17 @@ if __name__ == '__main__':
 
     # code for retrieving type ids
     type_idsCSV = pd.read_csv(idslocation)
-    type_ids = type_idsCSV['type_ids'].tolist()
+    type_ids = type_idsCSV['type_ids']
 
 
     # update history data
     print("updating history data")
     history_start = datetime.now()
     historical_df = pd.DataFrame(fetch_market_history(type_ids))
+    print(historical_df.head())
     hist_time_to_complete = datetime.now() - history_start
-    print(f"history data complete: {hist_time_to_complete}")
+    print(f'hist time: {hist_time_to_complete.total_seconds()}')
+
 
     # process data
     orders = pd.DataFrame(market_orders)
@@ -494,6 +508,7 @@ if __name__ == '__main__':
     print(f"Data for {len(final_data)} items retrieved.")
     print("=====================================================")
     print(
-        f"Time to complete:\nMARKET ORDERS: {Mkt_time_to_complete}, avg: {Avg_market_response_time}\nMARKET_HISTORY: {hist_time_to_complete}")
+        f"Time to complete:\nMARKET ORDERS: {Mkt_time_to_complete}\n"
+        f"MARKET_HISTORY: {hist_time_to_complete}")
     print(f"TOTAL TIME TO COMPLETE: {total_time}")
     print("market update complete")
