@@ -27,8 +27,10 @@ from get_jita_prices import get_jita_prices
 # load environment, where we store our client id and secret key.
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
-# Currently set for the 4-HWWF Keepstar. You can enter another structure ID for a player-owned structure that you have access to.
-structure_id = 1035466617946
+#CONFIGURATION
+prompt_config_mode = False #change this to false if you do not want to be prompted to use configuration mode
+structure_id = 1035466617946 # Currently set to 4-HWWF Keepstar. Enter another structure ID for a player-owned structure that you have access to.
+save_error_log = False
 
 # set variables for ESI requests
 MARKET_STRUCTURE_URL = f'https://esi.evetech.net/latest/markets/structures/{structure_id}/?page='
@@ -38,12 +40,10 @@ SCOPE = [
 
 # output locations
 # You can change these file names to be more accurate when pulling data for other regions.
-orders_filename = f"output/4Hmarketorders_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
-errorlog_filename = f"output/Hmarketorders_errorlog_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+orders_filename = f"output/valemarketorders_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+errorlog_filename = f"output/error_logs/4Hmarketorders_errorlog_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
 history_filename = f"output/valemarkethistory_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
 market_stats_filename = f"output/valemarketstats_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
-merged_sell_filename = f"output/valemergedsell_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
-master_history_filename = "data/masterhistory/valemarkethistory_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
 
 def configuration_mode():
     config_choice = input("run in configuration mode? (y/n):")
@@ -160,17 +160,10 @@ def fetch_market_orders(test_mode):
     print(f"Retrieval complete. Fetched {total_pages}. Total orders: {len(all_orders)}")
     print(f"Received {error_count} errors.")
     print(f"{total_tries} total tries.")
-
-    save_errors = input("save error log? y/n")
-    if save_errors == 'y':
-        print("saving error log to csv...")
+    if save_to_csv:
         save_error_log_to_csv(errorlog, errorlog_filename)
-    else:
-        print("not saving error log.")
 
-    print("Returning all orders....")
     return all_orders
-
 
 def fetch_market_orders_standard():
     # initiates the oath2 flow
@@ -274,6 +267,7 @@ def fetch_market_orders_standard():
 # noinspection PyTypeChecker
 def save_to_csv(orders, filename):
     fields = ['type_id', 'order_id', 'price', 'volume_remain', 'volume_total', 'is_buy_order', 'issued', 'range']
+    os.makedirs('output', exist_ok=True)
 
     with open(filename, mode='w', newline='') as file:
         writer = csv.DictWriter(file, fieldnames=fields)
@@ -281,12 +275,12 @@ def save_to_csv(orders, filename):
         for order in orders:
             writer.writerow({
                 'order_id': order.get('order_id'),
+                'type_id': order.get('type_id'),
                 'price': order.get('price'),
                 'volume_remain': order.get('volume_remain'),
                 'volume_total': order.get('volume_total'),
                 'is_buy_order': order.get('is_buy_order'),
                 'issued': order.get('issued'),
-                'type_id': order.get('type_id'),
                 'range': order.get('range')
             })
     print(f"Market orders saved to {filename}")
@@ -295,6 +289,7 @@ def save_to_csv(orders, filename):
     # TextIO does support string writing, so this is not actually an issue.
 
 def save_error_log_to_csv(errorlog, filename=None):
+    os.makedirs('output/error_logs', exist_ok=True)
 
     with open(filename, mode='w', newline='') as file:
         writer = csv.writer(file)
@@ -416,11 +411,17 @@ def aggregate_sell_orders(orders_data):
 
     return merged_df
 
-
 def merge_market_stats(merged_orders, history_data):
     grouped_historical_df = history_merge(history_data)
     merged_data = pd.merge(merged_orders, grouped_historical_df, on='type_id', how='left')
-    final_df = pd.merge(merged_data, watchlist, on='type_id', how='left')
+
+    #get typenames from the SDE
+    name_data = insert_SDE_data(merged_data)
+    final_df = pd.merge(merged_data, name_data, on='type_id', how='left')
+    final_df = final_df[['type_id', 'type_name', 'total_volume_remain', 'price_5th_percentile', 'min_price',
+       'avg_of_avg_price', 'avg_daily_volume']]
+    print(final_df.head())
+
     return final_df
 
 def history_merge(history_data):
@@ -436,10 +437,24 @@ def history_merge(history_data):
 
     return grouped_historical_df
 
-# ===============================================
-# MAIN PROGRAM
-# -----------------------------------------------
-# <ain function where everything gets executed.
+def insert_SDE_data(df: pd.DataFrame) -> pd.DataFrame:
+    base_url = 'https://esi.evetech.net/latest/universe/names/?datasource=tranquility'
+    headers = {
+        'Content-Type': 'application/json',
+    }
+
+    ids = df['type_id'].unique().tolist()
+    ids = str(ids)
+
+    data = requests.post(base_url, headers=headers, data=ids)
+    resp = data.json()
+    df = pd.DataFrame(resp)
+
+    df = df[['id','name']]
+    new_cols = {'id': 'type_id','name': 'type_name'}
+    df.rename(columns=new_cols, inplace=True)
+
+    return df
 
 if __name__ == '__main__':
 
@@ -450,16 +465,19 @@ if __name__ == '__main__':
     # pull market orders logging start time and checking for test mode
     print("starting data pull...market orders")
 
-    # Configure to run in an abbreviated test mode....
-    test_mode, csv_save_mode = configuration_mode()
+    test_mode = True
+    csv_save_mode = True
+
+    if prompt_config_mode:
+        # Configure to run in an abbreviated test mode....
+        test_mode, csv_save_mode = configuration_mode()
 
     if test_mode:
-        idslocation = 'data/type_ids2.csv.'
+        idslocation = 'data/type_ids_test.csv.'
         market_orders = fetch_market_orders(test_mode)
     else:
         idslocation = 'data/type_ids.csv.'
         market_orders = fetch_market_orders_standard()
-
 
     Mkt_time_to_complete = datetime.now() - start_time
     Avg_market_response_time = (Mkt_time_to_complete.microseconds / len(market_orders)) / 1000
@@ -468,9 +486,15 @@ if __name__ == '__main__':
 
     # code for retrieving type ids
     type_idsCSV = pd.read_csv(idslocation)
-    type_ids = type_idsCSV['type_ids'].tolist()
-    expanded_type_ids = 'data/inv_types_expanded.csv'
-    watchlist = pd.read_csv('data/watchlist.csv')
+
+    #added error handling for column labels
+    try:
+        type_ids = type_idsCSV['type_ids'].tolist()
+    except KeyError:
+        try:
+            type_ids = type_idsCSV['type_id'].tolist()
+        except KeyError:
+            type_ids = type_idsCSV['typeID'].tolist()
 
     # update history data
     print("updating history data")

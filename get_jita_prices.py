@@ -28,9 +28,6 @@ def merge_vale_data(jita_data, vale_data):
     jita_data['type_id'] = jita_data['type_id'].astype(int)
     merged_df = pd.merge(vale_df, jita_data, on='type_id', how='left')
     merged_df = merged_df.reset_index(drop=True)
-    merged_df = merged_df[['type_id', 'type_name', 'total_volume_remain', 'price_5th_percentile',
-                           'avg_of_avg_price', 'avg_daily_volume', 'group_id', 'jita_sell', 'jita_buy',
-                           'group_name', 'category_id', 'category_name']]
     return merged_df
 
 def parse_json(data) -> pd.DataFrame:

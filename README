@@ -1,7 +1,9 @@
 ---------------------------------------------
 ESI Structure Market Tools for Eve Online
 ---------------------------------------------
-Tool for coaxing data out of Eve Online player-owned markets.
+Tool for coaxing data out of Eve Online player-owned markets. This was written using Python 3.12. It might
+behave unexpectedly in other versions. If you're in a more recent version, you may need to update some of the
+dependencies.
 
 What it does
 
@@ -23,8 +25,11 @@ Instructions on how to install, configure, and use the project.
 
 1) Create a .env file to store your credentials:
 
-CLIENT_ID = '...'
-SECRET_KEY = '../'
+It should look like this, replacing my random gibberish with your actual CLIENT_ID and SECRET_KEY (contained in
+quotation marks.)
+
+CLIENT_ID = 'asfdfsdgsfg3255425'
+SECRET_KEY = 'asdgfgdgfasgf34656'
 
 2) Configure variables in the main file for the structure you want and edit the type_ids .csv list to your liking.
 
@@ -40,25 +45,29 @@ requirements.txt
 #subfolders
  - data
     type_ids.csv #full list of items for market history requests
-    type_ids2.csv #shorter list to use for debugging
+    type_ids_test.csv #shorter list to use for debugging
 - output
     - archive
     - error_logs
     - latest
+    - vale_market_stats
 ####
 
 ## Usage
 
 Run: Code will ask you to run in testing mode.
-Good idea for first time through to make sure it's all working.
+Good idea for first time through to make sure it's all working. You can configure turning this off at the top
+if this becomes annoying.
 
 Pulls market orders for the chosen structure and regional history for the type ids on your list.
 
 Outputs
 - MarketStats (summary stats)
-- MarketOrders (all)
-- MarketHistory (all orders your your type-ids over the last 30 days.
+- MarketOrders (all market listings, saves to archive folder by default)
+- MarketHistory (all orders your your type-ids over the last 30 days.)
 - error_log so you can see if anything went wrong.
+- archived versions of these files in the archive folder
 
+DM me on discord with any questions: orthel_toralen
 
 Project Link: [https://github.com/yourusername/yourproject](https://github.com/yourusername/yourproject)
