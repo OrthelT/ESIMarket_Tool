@@ -107,3 +107,6 @@ def save_token(token):
         # This is because jason.dump expects a str, but got a TextIO instead.
         # TextIO does support string writing, so this is not actually an issue.
     print('token saved')
+
+if __name__ == '__main__':
+    pass

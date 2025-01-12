@@ -50,3 +50,5 @@ def parse_json(data) -> pd.DataFrame:
 
     return df
 
+if __name__ == '__main__':
+    pass
