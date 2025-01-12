@@ -28,9 +28,9 @@ from get_jita_prices import get_jita_prices
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 #CONFIGURATION
-prompt_config_mode = False #change this to false if you do not want to be prompted to use configuration mode
+prompt_config_mode = True #change this to false if you do not want to be prompted to use configuration mode
 structure_id = 1035466617946 # Currently set to 4-HWWF Keepstar. Enter another structure ID for a player-owned structure that you have access to.
-save_error_log = False
+save_error_log = True
 
 # set variables for ESI requests
 MARKET_STRUCTURE_URL = f'https://esi.evetech.net/latest/markets/structures/{structure_id}/?page='
@@ -465,7 +465,7 @@ if __name__ == '__main__':
     # pull market orders logging start time and checking for test mode
     print("starting data pull...market orders")
 
-    test_mode = True
+    test_mode = False
     csv_save_mode = True
 
     if prompt_config_mode:
