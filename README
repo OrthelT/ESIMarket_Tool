@@ -50,7 +50,7 @@ requirements.txt
     - archive
     - error_logs
     - latest
-    - vale_market_stats
+    - market_stats
 ####
 
 ## Usage

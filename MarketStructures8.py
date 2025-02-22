@@ -2,6 +2,8 @@ import os
 import requests
 import time
 import csv
+import logging
+from logging.handlers import RotatingFileHandler
 
 import pandas as pd
 from requests import ReadTimeout
@@ -32,18 +34,55 @@ prompt_config_mode = True #change this to false if you do not want to be prompte
 structure_id = 1035466617946 # Currently set to 4-HWWF Keepstar. Enter another structure ID for a player-owned structure that you have access to.
 save_error_log = True
 
+# Set up logging
+def setup_logging():
+    # Create logs directory if it doesn't exist
+    os.makedirs('logs', exist_ok=True)
+    
+    # Create logger
+    logger = logging.getLogger('MarketStructures')
+    logger.setLevel(logging.INFO)
+    
+    # Create formatters
+    file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_formatter = logging.Formatter('%(message)s')
+    
+    # Create and configure file handler (rotating log files)
+    file_handler = RotatingFileHandler(
+        'logs/market_structures.log',
+        maxBytes=1024*1024,  # 1MB
+        backupCount=5
+    )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(file_formatter)
+    
+    # Create and configure console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(console_formatter)
+    
+    # Add handlers to logger
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
+
+# Initialize logger
+logger = setup_logging()
+
 # set variables for ESI requests
 MARKET_STRUCTURE_URL = f'https://esi.evetech.net/latest/markets/structures/{structure_id}/?page='
 print(MARKET_STRUCTURE_URL)
 SCOPE = [
     'esi-markets.structure_markets.v1']  #make sure you have this scope enabled in you ESI Dev Application settings.
-
+    
 # output locations
 # You can change these file names to be more accurate when pulling data for other regions.
-orders_filename = f"output/valemarketorders_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
-errorlog_filename = f"output/error_logs/4Hmarketorders_errorlog_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
-history_filename = f"output/valemarkethistory_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
-market_stats_filename = f"output/valemarketstats_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+orders_filename = f"output/marketorders_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+errorlog_filename = f"output/error_logs/marketorders_errorlog_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+history_filename = f"output/markethistory_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+market_stats_filename = f"output/marketstats_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+latest_folder = os.makedirs('output/latest', exist_ok=True)
 
 def configuration_mode():
     config_choice = input("run in configuration mode? (y/n):")
@@ -168,8 +207,8 @@ def fetch_market_orders(test_mode):
 def fetch_market_orders_standard():
     # initiates the oath2 flow
     token = get_token(SCOPE)
-    print('ESI Scope Authorized. Requesting data.')
-    print('-----------------------------------------')
+    logger.info('ESI Scope Authorized. Requesting data.')
+    logger.info('-----------------------------------------')
 
     headers = {
         'Authorization': f'Bearer {token["access_token"]}',
@@ -186,10 +225,10 @@ def fetch_market_orders_standard():
     failed_pages = []
     failed_pages_count = 0
 
-    print("fetching orders...")  # Track status
+    logger.info("fetching orders...")
 
     while page <= max_pages:
-        print(f"\rFetching page {page}...", end="")
+        logger.debug(f"Fetching page {page}...")
         response = requests.get(MARKET_STRUCTURE_URL + str(page), headers=headers)
 
         if 'X-Pages' in response.headers:
@@ -203,18 +242,15 @@ def fetch_market_orders_standard():
         if errorsleft == 0:
             break
         elif errorsleft < 10:
-            print(f'WARNING: Errors remaining: {errorsleft}. Error limit reset: {errorreset} seconds.')
+            logger.warning(f'WARNING: Errors remaining: {errorsleft}. Error limit reset: {errorreset} seconds.')
 
-        # some error handling to gently keep prodding the ESI until we gat all the data
+        # some error handling to gently keep prodding the ESI until we get all the data
         if response.status_code != 200:
             error_code = response.status_code
             error_details = response.json()
             error = error_details['error']
-            print(
+            logger.error(
                 f"Error fetching data from page {page}. status code: {error_code} ({error}); tries: {tries} Retrying in 3 seconds...")
-            print(
-                f"Error fetching data from page {page}. status code: {error_code}. tries: {tries} Retrying in 3 seconds...")
-            print(os.strerror(error_code))
             error_count += 1
 
             if tries < 5:
@@ -222,7 +258,7 @@ def fetch_market_orders_standard():
                 time.sleep(3)
                 continue
             else:
-                print(f'Reached the 5th try and giving up on page {page}.')
+                logger.error(f'Reached the 5th try and giving up on page {page}.')
                 failed_pages.append([page, error_code, error])
                 failed_pages_count += 1
                 break
@@ -246,21 +282,21 @@ def fetch_market_orders_standard():
         total_pages += 1
         page += 1
 
-    print('-----------------------------------------------')
-    print('Market Orders Complete')
-    print('-----------------------------------------------')
-    print('SUMMARY:')
-    print(f"Fetched pages: {total_pages}")
-    print(f"Total orders: {len(all_orders)}")
-    print(f"Errors: {error_count}")
+    logger.info('-----------------------------------------------')
+    logger.info('Market Orders Complete')
+    logger.info('-----------------------------------------------')
+    logger.info('SUMMARY:')
+    logger.info(f"Fetched pages: {total_pages}")
+    logger.info(f"Total orders: {len(all_orders)}")
+    logger.info(f"Errors: {error_count}")
     if failed_pages_count > 0:
-        print(f"The following pages failed: {failed_pages}")
-        print(f"{failed_pages_count} pages failed.")
+        logger.warning(f"The following pages failed: {failed_pages}")
+        logger.warning(f"{failed_pages_count} pages failed.")
     else:
-        print(f"All pages fetched successfully. After {total_tries} total tries.")
-    print("Returning all orders....")
-    print('-----------------------------------------------')
-    print('================================================')
+        logger.info(f"All pages fetched successfully. After {total_tries} total tries.")
+    logger.info("Returning all orders....")
+    logger.info('-----------------------------------------------')
+    logger.info('================================================')
     return all_orders
 
 # Save the CSV files
@@ -457,13 +493,12 @@ def insert_SDE_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 if __name__ == '__main__':
-
     # hit the stopwatch to see how long it takes
     start_time = datetime.now()
-    print(start_time)
+    logger.info(start_time)
 
     # pull market orders logging start time and checking for test mode
-    print("starting data pull...market orders")
+    logger.info("starting data pull...market orders")
 
     test_mode = False
     csv_save_mode = True
@@ -473,15 +508,15 @@ if __name__ == '__main__':
         test_mode, csv_save_mode = configuration_mode()
 
     if test_mode:
-        idslocation = 'data/type_ids_test.csv.'
+        idslocation = 'data/type_ids_test.csv'
         market_orders = fetch_market_orders(test_mode)
     else:
-        idslocation = 'data/type_ids.csv.'
+        idslocation = 'data/type_ids.csv'
         market_orders = fetch_market_orders_standard()
 
     Mkt_time_to_complete = datetime.now() - start_time
     Avg_market_response_time = (Mkt_time_to_complete.microseconds / len(market_orders)) / 1000
-    print(
+    logger.info(
         f'done. Time to complete market orders: {Mkt_time_to_complete}, avg market response time: {Avg_market_response_time}ms')
 
     # code for retrieving type ids
@@ -530,8 +565,8 @@ if __name__ == '__main__':
         #cleanup files. "Full cleanup true" moves old files from output to archive.
         rename_move_and_archive_csv(src_folder, latest_folder, archive_folder, True)
 
-        print("saving vale_jita data")
-        vale_jita.to_csv('output/latest/vale_jita.csv', index=False)
+        print("saving jita data")
+        vale_jita.to_csv('output/latest/jita_prices.csv', index=False)
     # Completed stats
     finish_time = datetime.now()
     total_time = finish_time - start_time
