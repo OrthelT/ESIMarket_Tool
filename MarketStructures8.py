@@ -20,11 +20,13 @@ from get_jita_prices import get_jita_prices
 # but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 # See the GNU General Public License for more details. <https://www.gnu.org/licenses/>.
 #
-# ---------------------------------------------
-# ESI Structure Market Tools for Eve Online
-# ---------------------------------------------
+#ESI Structure Market Tools for Eve Online VERSION 0.2
 # #Developed as a learning project, to access Eve's enfeebled ESI. I'm not a real programmer, ok? Don't laugh at me.
 # Contact orthel_toralen on Discord with questions.
+
+print("="*80)
+print("ESI Structure Market Tools for Eve Online")
+print("="*80)
 
 # load environment, where we store our client id and secret key.
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
@@ -32,16 +34,21 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 #CONFIGURATION
 prompt_config_mode = True #change this to false if you do not want to be prompted to use configuration mode
 structure_id = 1035466617946 # Currently set to 4-HWWF Keepstar. Enter another structure ID for a player-owned structure that you have access to.
-save_error_log = True
+region_id = 10000003 # Currently set to Vale of the Silent. Enter another region ID for a different region.
+verbose_console_logging = True #change this to false to disable console logging. The log file will still be created.
+
+#add a delay between ESI requests to avoid rate limiting.
+market_orders_wait_time = 0.1 #change this to increase the wait time between market orders ESI requests.
+market_history_wait_time = 0.3 #change this to increase the wait time between market history ESI requests to avoid rate limiting.
 
 # Set up logging
-def setup_logging():
+def setup_logging(level=logging.INFO):
     # Create logs directory if it doesn't exist
     os.makedirs('logs', exist_ok=True)
     
     # Create logger
     logger = logging.getLogger('MarketStructures')
-    logger.setLevel(logging.INFO)
+    logger.setLevel(level)
     
     # Create formatters
     file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -53,41 +60,57 @@ def setup_logging():
         maxBytes=1024*1024,  # 1MB
         backupCount=5
     )
-    file_handler.setLevel(logging.INFO)
+    file_handler.setLevel(level)
     file_handler.setFormatter(file_formatter)
     
     # Create and configure console handler
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(logging.INFO if verbose_console_logging else logging.WARNING)
     console_handler.setFormatter(console_formatter)
     
-    # Add handlers to logger
+    # Add handlers to loggery
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
     
     return logger
 
-# Initialize logger
+# Initialize logger, optional level argument can be passed to set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
 logger = setup_logging()
 
 # set variables for ESI requests
 MARKET_STRUCTURE_URL = f'https://esi.evetech.net/latest/markets/structures/{structure_id}/?page='
-print(MARKET_STRUCTURE_URL)
 SCOPE = [
     'esi-markets.structure_markets.v1']  #make sure you have this scope enabled in you ESI Dev Application settings.
-    
 # output locations
 # You can change these file names to be more accurate when pulling data for other regions.
 orders_filename = f"output/marketorders_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
-errorlog_filename = f"output/error_logs/marketorders_errorlog_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
 history_filename = f"output/markethistory_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
 market_stats_filename = f"output/marketstats_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
 latest_folder = os.makedirs('output/latest', exist_ok=True)
+
+logger.info(f"MARKET_STRUCTURE_URL: {MARKET_STRUCTURE_URL}\nSCOPE: {SCOPE}")
+
 
 def configuration_mode():
     config_choice = input("run in configuration mode? (y/n):")
     if config_choice == 'y':
         test_mode, csv_save_mode = debug_mode()
+
+        print(f"""CONFIGURATION SETTINGS
+              -----------------------------------------------
+              prompt_config_mode: {prompt_config_mode}
+              structure_id: {structure_id}
+              region_id: {region_id}
+              verbose_console_logging: {verbose_console_logging}
+              market_orders_wait_time: {market_orders_wait_time}
+              market_history_wait_time: {market_history_wait_time}
+              
+              These settings will be used for the next run, and can be changed in the code directly.
+              -----------------------------------------------
+              """)
+              
+        input("Press Enter to continue or Ctrl+C to exit...")
+
         return test_mode, csv_save_mode
     else:
         return False, True
@@ -111,10 +134,12 @@ def debug_mode():
 #===============================================
 # Functions: Fetch Market Structure Orders
 #-----------------------------------------------
-def fetch_market_orders(test_mode):
-
+def fetch_market_orders_test_mode(test_mode):
+    logger.info("Starting market order fetch in test mode...")
     #initiates the oath2 flow
+    logger.info("Authorizing ESI scope...")
     token = get_token(SCOPE)
+    logger.info("ESI scope authorized. Requesting data...")
 
     headers = {
         'Authorization': f'Bearer {token["access_token"]}',
@@ -122,27 +147,23 @@ def fetch_market_orders(test_mode):
     }
 
     page = 1
-    max_pages = 1
-    tries: int = 0
-    total_tries = 0
+    max_pages = 3
+    retries: int = 0
+    total_retries: int = 0  # Changed from total_tries to total_retries for consistency
     error_count: int = 0
     total_pages = 0
 
     all_orders = []
-    errorlog = {}
+    
+    logger.info(f"Test mode enabled. Limiting to {max_pages} pages.\n")
 
     while page <= max_pages:
         response = requests.get(MARKET_STRUCTURE_URL + str(page), headers=headers)
-        print(f"Fetching page {page}, status code: {response.status_code}")  # Track status
 
         if 'X-Pages' in response.headers:
-            max_pages = int(response.headers['X-Pages'])
-        elif response.status_code == 200:
-            max_pages = 1
-
-        #The test mode booleon sets a limited number of pages for debugging.
-        if test_mode:
-            max_pages = 3
+            x_max_pages = int(response.headers['X-Pages'])
+            if x_max_pages < max_pages:
+                max_pages = x_max_pages
 
         #make sure we don't hit the error limit and get our IP banned
         errorsleft = int(response.headers.get('X-ESI-Error-Limit-Remain', 0))
@@ -151,60 +172,75 @@ def fetch_market_orders(test_mode):
         if errorsleft == 0:
             break
         elif errorsleft < 10:
-            print(f'WARNING: Errors remaining: {errorsleft}. Error limit reset: {errorreset} seconds.')
+            logger.warning(f'WARNING: Errors remaining: {errorsleft}. Error limit reset: {errorreset} seconds.\n')
 
-        #some error handling to gently keep prodding the ESI until we gat all the data
+        #some error handling to gently keep prodding the ESI until we get all the data
         if response.status_code != 200:
             error_code = response.status_code
             error_info = response.json()
             error = error_info['error']
-            print(
-                f"Error fetching data from page {page}. status code: {error_code} ({error}. tries: {tries} Retrying in 3 seconds...")
             error_count += 1
-            #error logging
-            if error_code not in errorlog:
-                errorlog[error_code] = []  # Initialize the list if it doesn't exist
-            errorlog[error_code].append(page)
-            # try again a maximum of 5 times
-            if tries < 5:
-                tries += 1
+            
+            logger.error(f"Error fetching data from page {page}. status code: {error_code} ({error}. retries: {retries} Retrying in 3 seconds...\n")
+            
+            if retries < 5:
+                retries += 1
                 time.sleep(3)
                 continue
             else:
-                print(f'Reached the 5th try and giving up on page {page}.')
+                logger.error(f'Reached the 5th retry and giving up on page {page}\n')
+                print(f"""Page {page} failed 5 times. Giving up.
+                Errors: {error_count}
+                Retries: {total_retries}
+                Errors left: {errorsleft}
+                Time until error reset: {errorreset}
+                """)
+                input("Press Enter to continue or Ctrl+C to exit...")
                 break
-        total_tries += tries
-        tries = 0
+
+        total_retries += retries
+        retries = 0
 
         try:
             orders = response.json()
         except ValueError:
-            print(f"Error decoding JSON response from page {page}. Skipping to next page.")
+            logger.error(f"Error decoding JSON response from page {page}.\n")
             continue
 
         if not orders:
+            logger.error(f"No orders remaining on page {page}.\n")
             break
 
         all_orders.extend(orders)
-
-        print(f"Orders fetched from page {page}/{max_pages}: {len(orders)}. Total Orders fetched: {len(all_orders)}.")
+        logger.info(f"Orders fetched from page {page}/{max_pages}: {len(orders)}. Total Orders fetched: {len(all_orders)}.\n")
 
         total_pages += 1
         page += 1
 
-        print('-------------------------')
-        print(f"Now fetching page {page}...")
-        time.sleep(.5)
+        print(f"\rNow fetching page {page} of {max_pages}...", end="")
+        time.sleep(market_orders_wait_time)
 
-    print(f"Retrieval complete. Fetched {total_pages}. Total orders: {len(all_orders)}")
-    print(f"Received {error_count} errors.")
-    print(f"{total_tries} total tries.")
-    if save_to_csv:
-        save_error_log_to_csv(errorlog, errorlog_filename)
-
+    print(f"""
+          -----------------------------------------------
+          Market Orders complete. 
+          Fetched {total_pages} pages. 
+          Total orders: {len(all_orders)}
+          Received {error_count} errors.
+          {total_retries} total retries.
+          -----------------------------------------------
+          """)
+    logger.info("-----------------------------------------------")
+    logger.info("Market Orders complete.")
+    logger.info(f"Fetched {total_pages} pages. Total orders: {len(all_orders)}")
+    logger.info(f"Received {error_count} errors. {total_retries} total retries.")
+    logger.info("-----------------------------------------------")
+    logger.info("Returning all orders....")
     return all_orders
 
-def fetch_market_orders_standard():
+def fetch_market_orders_standard_mode():
+    logger.info("Starting market order fetch in standard mode...")
+    logger.info("-----------------------------------------")
+    logger.info("Authorizing ESI scope...")
     # initiates the oath2 flow
     token = get_token(SCOPE)
     logger.info('ESI Scope Authorized. Requesting data.')
@@ -217,90 +253,99 @@ def fetch_market_orders_standard():
 
     page = 1
     max_pages = 1
-    tries = 0
-    total_tries = 0
+    retries = 0
+    total_retries = 0
     error_count = 0
     total_pages = 0
     all_orders = []
-    failed_pages = []
-    failed_pages_count = 0
 
-    logger.info("fetching orders...")
+    logger.info("fetching market orders...")
 
     while page <= max_pages:
         logger.debug(f"Fetching page {page}...")
+        
         response = requests.get(MARKET_STRUCTURE_URL + str(page), headers=headers)
-
+        logger.debug(f"page: {page}, response: {response.status_code}")
         if 'X-Pages' in response.headers:
             max_pages = int(response.headers['X-Pages'])
         elif response.status_code == 200:
             max_pages = 1
+        
+        percent_complete = round((page / max_pages) * 100)
+        print(f"\rFetching page {page} of {max_pages} ({percent_complete}% complete)", end="")  # Keep progress indicator for user feedback
 
-        # make sure we don't hit the error limit and get our IP banned
+        # Error limit handling
         errorsleft = int(response.headers.get('X-ESI-Error-Limit-Remain', 0))
         errorreset = int(response.headers.get('X-ESI-Error-Limit-Reset', 0))
+        if errorsleft > 0:
+            logger.debug(f"Errors remaining: {errorsleft}. Error limit reset: {errorreset} seconds.\n")
         if errorsleft == 0:
+            logger.error("Error limit reached. Stopping requests.\n")
             break
         elif errorsleft < 10:
-            logger.warning(f'WARNING: Errors remaining: {errorsleft}. Error limit reset: {errorreset} seconds.')
+            logger.warning(f'Low error limit remaining: {errorsleft}. Reset in {errorreset} seconds.\n')
 
-        # some error handling to gently keep prodding the ESI until we get all the data
+        # Error handling
         if response.status_code != 200:
             error_code = response.status_code
             error_details = response.json()
             error = error_details['error']
-            logger.error(
-                f"Error fetching data from page {page}. status code: {error_code} ({error}); tries: {tries} Retrying in 3 seconds...")
             error_count += 1
-
-            if tries < 5:
-                tries += 1
+            
+            logger.error(f"Error fetching data from page {page}. Status code: {error_code} ({error}). Retries: {retries}\n")
+            
+            if retries < 5:
+                retries += 1
+                logger.info(f"Retrying page {page}. Attempt {retries}/5\n")
                 time.sleep(3)
                 continue
             else:
-                logger.error(f'Reached the 5th try and giving up on page {page}.')
-                failed_pages.append([page, error_code, error])
-                failed_pages_count += 1
+                logger.error(f'Reached maximum retries for page {page}. Giving up.\n')
+                print(f"""
+                Page {page} failed after 5 attempts.
+                Errors: {error_count}
+                Retries: {total_retries}
+                Errors left: {errorsleft}
+                Time until error reset: {errorreset}
+                """)
+                input("Press Enter to continue or Ctrl+C to exit...")
                 break
 
-        total_tries += tries
-        tries = 0
+        total_retries += retries
+        retries = 0
 
         try:
             orders = response.json()
         except ValueError:
-            print(f"Error decoding JSON response from page {page}. Skipping to next page.")
-            failed_pages.append([page, 'ValueError', 'ValueError'])
+            logger.error(f"Failed to decode JSON response from page {page}\n")
             failed_pages_count += 1
             continue
+    
 
         if not orders:
+            logger.info(f"No orders found on page {page}\n")
             break
 
         all_orders.extend(orders)
 
         total_pages += 1
         page += 1
+        time.sleep(market_orders_wait_time)
 
-    logger.info('-----------------------------------------------')
-    logger.info('Market Orders Complete')
-    logger.info('-----------------------------------------------')
-    logger.info('SUMMARY:')
-    logger.info(f"Fetched pages: {total_pages}")
+    logger.info(f"Retrieved {len(orders)} orders from page {page}/{max_pages}. Total orders: {len(all_orders)}")
+
+    
+    logger.info("-----------------------------------------------")
+    logger.info("Market Orders Complete")
+    logger.info(f"Pages fetched: {total_pages}")
     logger.info(f"Total orders: {len(all_orders)}")
     logger.info(f"Errors: {error_count}")
-    if failed_pages_count > 0:
-        logger.warning(f"The following pages failed: {failed_pages}")
-        logger.warning(f"{failed_pages_count} pages failed.")
-    else:
-        logger.info(f"All pages fetched successfully. After {total_tries} total tries.")
-    logger.info("Returning all orders....")
-    logger.info('-----------------------------------------------')
-    logger.info('================================================')
+    logger.info(f"Total retries: {total_retries}")
+    logger.info("-----------------------------------------------")
+    
     return all_orders
 
 # Save the CSV files
-# noinspection PyTypeChecker
 def save_to_csv(orders, filename):
     fields = ['type_id', 'order_id', 'price', 'volume_remain', 'volume_total', 'is_buy_order', 'issued', 'range']
     os.makedirs('output', exist_ok=True)
@@ -319,113 +364,162 @@ def save_to_csv(orders, filename):
                 'issued': order.get('issued'),
                 'range': order.get('range')
             })
-    print(f"Market orders saved to {filename}")
+    logger.info(f"Market orders saved to {filename}")
     # note some IDEs will flag the variable 'file' as an error.
     # This is because DictWriter expects a str, but got a TextIO instead.
     # TextIO does support string writing, so this is not actually an issue.
 
-def save_error_log_to_csv(errorlog, filename=None):
-    os.makedirs('output/error_logs', exist_ok=True)
-
-    with open(filename, mode='w', newline='') as file:
-        writer = csv.writer(file)
-
-        # Write the header
-        writer.writerow(['Error Code', 'Pages'])
-
-        # Write each error code and the pages it occurred on
-        for error_code, pages in errorlog.items():
-            pages_str = ', '.join(map(str, pages))  # Convert list of pages to a comma-separated string
-            writer.writerow([error_code, pages_str])
-    print(f"Error log saved to {filename}")
-
-# Get the type ids to use for market history
-def get_type_ids(datafile):
-    watchlist = pd.read_csv(datafile,
-                            usecols=[0],
-                            names=['type_id'], skiprows=1
-                            )
-    type_ids = watchlist['type_id'].tolist()
-    return type_ids
 
 # update market history
 def fetch_market_history(type_id_list: list[int]) -> list[dict[str, int | str | float]]:
-    timeout = 10
-    market_history_url = 'https://esi.evetech.net/latest/markets/10000003/history/?datasource=tranquility&type_id='
+    start_time = datetime.now()
+    item_count = len(type_id_list)
+    logger.info(f"Fetching market history...for {item_count} items")
+    logger.info("-"*80)
+    estimated_time_seconds = item_count * .54
+    estimated_time_minutes = round(estimated_time_seconds / 60)
+    print("-"*80)
+    print(f"Querying ESI history for {item_count} items. Estimated time to complete: {estimated_time_minutes} minutes")
+    print("-"*80)
 
-    headers = {
-        'Content-Type': 'application/json',
-    }
+    timeout = 10
+    
     all_history = []
     page = 1
     max_pages = 1
-    errorcount = 0
-    tries = 0
+    error_count = 0
+    retries = 0
+    total_retries = 0
     successful_returns = 0
+    failed_items = []
+    items_processed = 0
 
-    print('----------------------------')
-    print("Updating market history...")
-    print('============================')
-    # Iterate over type_ids to fetch market history for 4-HWWF
+    market_history_url = f'https://esi.evetech.net/latest/markets/{region_id}/history/?datasource=tranquility&type_id='
+
+    # Iterate over type_ids to fetch market history
     for type_id in range(len(type_id_list)):
+        item = type_id_list[type_id]
+        items_processed += 1
+        percent_complete = round((items_processed / len(type_id_list)) * 100)
+        
+        print(f"\rFetching history for item {items_processed} of {len(type_id_list)}.  {percent_complete}% complete", end="")
+        
         while page <= max_pages:
-            item = type_id_list[type_id]
-
+   
+            headers = {'accept': 'application/json'}
+                
             try:
+                request_start_time = datetime.now()
                 response = requests.get(market_history_url + str(item), headers=headers, timeout=timeout)
-                page += 1
+                code = response.status_code
+                logger.debug(f"type_id: {item}, status code: {code}")
 
+                error_limit_remain = response.headers.get('X-ESI-Error-Limit-Remain')
+                error_limit_reset = response.headers.get('X-ESI-Error-Limit-Reset')
+                
                 if 'X-Pages' in response.headers:
                     max_pages = int(response.headers['X-Pages'])
                 else:
                     max_pages = 1
 
-                if response.status_code != 200:
-                    print('error detected, retrying in 3 seconds...')
-                    time.sleep(3)
-                    errorcount += 1
-                    if tries < 5:
-                        tries += 1
+                if code != 200:
+                    error_count += 1
+                    error_details = response.json()  # Only try to decode JSON for error responses
+                    error = error_details['error']
+                    logger.error(f"\nError fetching type_id {item}: Status {response.status_code} ({error})")
+                    logger.error(f"Error limit remaining: {error_limit_remain}")
+                    if error_limit_remain < 2:
+                        logger.error(f"Error limit nearly reached. Stopping requests for {error_limit_reset} seconds to allow reset.\n")
+                        time.sleep(error_limit_reset)
                         continue
-                    elif tries == 5:
-                        print(f'Unable to retrieve any data for {item}. Moving on to the next...')
-                        break
-
+                    elif retries < 5:
+                        retries += 1
+                        logger.info(f"\nRetrying type_id {item}. Attempt {retries}/5\n")
+                        time.sleep(3)
+                        continue
+                    else:
+                        logger.error(f"\nFailed to fetch type_id {item} after 5 attempts\n")
+                        failed_items.append(item)
+                        input("Press Enter to continue or Ctrl+C to exit...")
+                            
+                # Only try to decode JSON for 200 responses
                 data = response.json()
+                request_duration = datetime.now() - request_start_time
+
+                # Calculate average request duration and check if rate limit is being approached
+                if items_processed > 1:
+                    average_request_duration = (average_request_duration * (items_processed - 1) + request_duration) / items_processed
+                    
+                    logger.debug(f"Request for type_id {item} took {request_duration} seconds")
+                    logger.debug(f"Average request duration: {average_request_duration} seconds")
+                    requests_per_minute = 60 / average_request_duration.total_seconds()
+                    logger.debug(f"Requests per minute: {requests_per_minute}")
+                    if requests_per_minute > 290:
+                        logger.warning(f"Requests per minute limit nearly reached. Current requests per minute: {requests_per_minute}")
+                        logger.warning("Sleeping for 10 seconds to avoid exceeding rate limit")
+                        time.sleep(10)
+                else:
+                    average_request_duration = request_duration
 
                 if data:
-                    # Append the type_id to each item in the response
+                    # Add type_id to each record
                     for entry in data:
-                        entry['type_id'] = item  # Add type_id to each record
-
+                        entry['type_id'] = item
                     all_history.extend(data)
+                    logger.debug(f"\nRetrieved {len(data)} history records for item {item}\n")
                 else:
-                    print(f"Empty response for type_id {item}. Skipping.")
+                    logger.warning(f"\nNo history data found for type_id {item}\n")
 
-                tries = 0
+                retries = 0
                 successful_returns += 1
-                max_pages = 1
+                page += 1
+                time.sleep(market_history_wait_time) #this is the wait time between requests to avoid rate limiting
 
             except ReadTimeout:
-                print(f"Request timed out for page {page}, item {item}. Retrying...")
-                if tries < 5:
-                    tries += 1
-                    time.sleep(3)  # Wait before retrying
+                logger.error(f"\nRequest timeout for type_id {item}\n")
+                if retries < 5:
+                    retries += 1
+                    logger.info(f"\nRetrying after timeout. Attempt {retries}/5\n")
+                    time.sleep(3)
                     continue
-            print(f'\ritems retrieved: {successful_returns}', end="")
+                else:
+                    logger.error(f"\nFailed to fetch type_id {item} after 5 timeout retries\n")
+                    failed_items.append(item)
+                    break
 
+        total_retries += retries
+        retries = 0
         page = 1
         max_pages = 1
-    print('HISTORY COMPLETE')
-    print('----------------------')
-    print(f'Items found: {successful_returns}')
-    print(f'Errors: {errorcount}')
-    print('========================')
+        
+    finish_time = datetime.now()
+    total_time = finish_time - start_time
+
+    print("\n"*2)
+    print("="*80)
+    print("Market History Complete")
+    print("="*80)
+    print("\n"*2)
+
+    # Final summary
+    logger.info("-----------------------------------------------")
+    logger.info("Market History Complete")
+    logger.info(f"Items processed: {successful_returns}/{len(type_id_list)}")
+    logger.info(f"Total history records: {len(all_history)}")
+    logger.info(f"Errors: {error_count}")
+    logger.info(f"Total retries: {total_retries}")
+    logger.info(f"Total time: {total_time}")
+    if failed_items:
+        logger.warning(f"Failed items: {failed_items}")
+    logger.info("-----------------------------------------------")
+
     return all_history
 
 # ===============================================
 # Functions: Process Market Stats
 #-----------------------------------------------
+logger.info("processing data and writing to csv")
+
 def filterorders(ids, list_orders):
     filtered_orders = list_orders[list_orders['type_id'].isin(ids)]
     return filtered_orders
@@ -456,11 +550,11 @@ def merge_market_stats(merged_orders, history_data):
     final_df = pd.merge(merged_data, name_data, on='type_id', how='left')
     final_df = final_df[['type_id', 'type_name', 'total_volume_remain', 'price_5th_percentile', 'min_price',
        'avg_of_avg_price', 'avg_daily_volume']]
-    print(final_df.head())
-
+    logger.info("market orders and history data merged")
     return final_df
 
 def history_merge(history_data):
+    logger.info(f"merging history data {len(history_data)} items")
     historical_df = history_data
     historical_df['date'] = pd.to_datetime(historical_df['date'])
     last_30_days_df = historical_df[historical_df['date'] >= pd.to_datetime('today') - pd.DateOffset(days=30)]
@@ -470,10 +564,11 @@ def history_merge(history_data):
     ).reset_index()
     grouped_historical_df['avg_of_avg_price'] = grouped_historical_df['avg_of_avg_price'].round(2)
     grouped_historical_df['avg_daily_volume'] = grouped_historical_df['avg_daily_volume'].round(2)
-
+    logger.info("history data merged")
     return grouped_historical_df
 
 def insert_SDE_data(df: pd.DataFrame) -> pd.DataFrame:
+    logger.info("querying SDE data")
     base_url = 'https://esi.evetech.net/latest/universe/names/?datasource=tranquility'
     headers = {
         'Content-Type': 'application/json',
@@ -489,35 +584,38 @@ def insert_SDE_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df[['id','name']]
     new_cols = {'id': 'type_id','name': 'type_name'}
     df.rename(columns=new_cols, inplace=True)
-
+    logger.info("SDE data query complete")
     return df
 
 if __name__ == '__main__':
+
     # hit the stopwatch to see how long it takes
     start_time = datetime.now()
     logger.info(start_time)
 
-    # pull market orders logging start time and checking for test mode
-    logger.info("starting data pull...market orders")
-
     test_mode = False
     csv_save_mode = True
-
     if prompt_config_mode:
+        logger.info("Configuration mode selected")
         # Configure to run in an abbreviated test mode....
         test_mode, csv_save_mode = configuration_mode()
 
     if test_mode:
+        logger.info("test mode selected")
         idslocation = 'data/type_ids_test.csv'
-        market_orders = fetch_market_orders(test_mode)
+        market_orders = fetch_market_orders_test_mode(test_mode)
     else:
+        logger.info("standard mode selected")
         idslocation = 'data/type_ids.csv'
-        market_orders = fetch_market_orders_standard()
+        market_orders = fetch_market_orders_standard_mode()
 
     Mkt_time_to_complete = datetime.now() - start_time
-    Avg_market_response_time = (Mkt_time_to_complete.microseconds / len(market_orders)) / 1000
+    # Convert timedelta to seconds or milliseconds before rounding
+    mkt_time_seconds = Mkt_time_to_complete.total_seconds()
+    Avg_market_response_time = (mkt_time_seconds * 1000) / len(market_orders)  # Convert to ms
+    
     logger.info(
-        f'done. Time to complete market orders: {Mkt_time_to_complete}, avg market response time: {Avg_market_response_time}ms')
+        f'done. Time to complete market orders: {round(mkt_time_seconds, 2)}s, avg market response time: {round(Avg_market_response_time, 2)}ms')
 
     # code for retrieving type ids
     type_idsCSV = pd.read_csv(idslocation)
@@ -532,11 +630,11 @@ if __name__ == '__main__':
             type_ids = type_idsCSV['typeID'].tolist()
 
     # update history data
-    print("updating history data")
+    logger.info("updating history data")
     history_start = datetime.now()
     historical_df = pd.DataFrame(fetch_market_history(type_ids))
     hist_time_to_complete = datetime.now() - history_start
-    print(f"history data complete: {hist_time_to_complete}")
+    logger.info(f"history data complete: {hist_time_to_complete}")
 
     # process data
     orders = pd.DataFrame(market_orders)
@@ -545,11 +643,11 @@ if __name__ == '__main__':
     merge_market_stats(merged_sell_orders, historical_df)
 
     final_data = merge_market_stats(merged_sell_orders, historical_df)
-    vale_jita = get_jita_prices(final_data)
+    with_jita_price = get_jita_prices(final_data)
 
     # save files
     if csv_save_mode:
-        print("-----------saving files and exiting----------------")
+        logger.info("-----------saving files and exiting----------------")
 
         save_to_csv(market_orders, orders_filename)
         # reorder history columns
@@ -565,17 +663,21 @@ if __name__ == '__main__':
         #cleanup files. "Full cleanup true" moves old files from output to archive.
         rename_move_and_archive_csv(src_folder, latest_folder, archive_folder, True)
 
-        print("saving jita data")
-        vale_jita.to_csv('output/latest/jita_prices.csv', index=False)
+        logger.info("saving jita data")
+        with_jita_price.to_csv('output/latest/jita_prices.csv', index=False)
     # Completed stats
     finish_time = datetime.now()
     total_time = finish_time - start_time
 
-    print("===================================================")
+    print("="*80)
     print("ESI Request Completed Successfully.")
     print(f"Data for {len(final_data)} items retrieved.")
-    print("=====================================================")
-    print(
-        f"Time to complete:\nMARKET ORDERS: {Mkt_time_to_complete}, avg: {Avg_market_response_time}\nMARKET_HISTORY: {hist_time_to_complete}")
-    print(f"TOTAL TIME TO COMPLETE: {total_time}")
-    print("market update complete")
+    print("-"*80)
+    hist_time_seconds = hist_time_to_complete.total_seconds()
+    total_time_seconds = total_time.total_seconds()
+    
+    logger.info(
+        f"Time to complete:\nMARKET ORDERS: {round(mkt_time_seconds, 2)}s, avg: {round(Avg_market_response_time, 
+        2)}ms\nMARKET_HISTORY: {round(hist_time_seconds, 2)}s, avg: {round(hist_time_seconds/len(type_ids), 2)}ms")
+    logger.info(f"TOTAL TIME TO COMPLETE: {round(total_time_seconds, 2)}s")
+    logger.info("="*80)
