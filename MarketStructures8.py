@@ -135,19 +135,33 @@ def debug_mode():
 # Functions: Fetch Market Structure Orders
 #-----------------------------------------------
 def fetch_market_orders_test_mode(test_mode):
+    if test_mode:
+        print("test mode enabled")
+
     logger.info("Starting market order fetch in test mode...")
     #initiates the oath2 flow
+    
     logger.info("Authorizing ESI scope...")
+    #get the token for the ESI scope using the get_token function in the ESO_OAUTH_FLOW.py file
     token = get_token(SCOPE)
     logger.info("ESI scope authorized. Requesting data...")
 
+    #set the headers for the request, this tells ESI that we are requesting JSON data 
+    #and that we are using an access token to authenticate our request
     headers = {
         'Authorization': f'Bearer {token["access_token"]}',
         'Content-Type': 'application/json',
     }
 
+    # here we set the variables that we will use to fetch the market orders. 
+    # we start at page 1 and set the max pages to 1, we will increment the page number until we have fetched all the pages
+    # we will reset the values of max_pages to the number of pages available in the ESI later
+    # we also set the retries to 0, this counts the number of times we will retry the request if we get an error so 
+    # we don't hit the error limit and get our IP banned
+    # we also set the error count to 0, this is the number of errors we have encountered
+    #w e also set the total pages to 0, this is the total number of pages we have fetched
     page = 1
-    max_pages = 3
+    max_pages = 1
     retries: int = 0
     total_retries: int = 0  # Changed from total_tries to total_retries for consistency
     error_count: int = 0
@@ -160,10 +174,9 @@ def fetch_market_orders_test_mode(test_mode):
     while page <= max_pages:
         response = requests.get(MARKET_STRUCTURE_URL + str(page), headers=headers)
 
+        #set the max pages to the number of pages available in the ESI
         if 'X-Pages' in response.headers:
-            x_max_pages = int(response.headers['X-Pages'])
-            if x_max_pages < max_pages:
-                max_pages = x_max_pages
+            max_pages = int(response.headers['X-Pages'])
 
         #make sure we don't hit the error limit and get our IP banned
         errorsleft = int(response.headers.get('X-ESI-Error-Limit-Remain', 0))
@@ -202,21 +215,30 @@ def fetch_market_orders_test_mode(test_mode):
         retries = 0
 
         try:
+            #try to decode the json response
             orders = response.json()
+
         except ValueError:
+            #if there is an error decoding the json response, continue the loop
             logger.error(f"Error decoding JSON response from page {page}.\n")
             continue
 
         if not orders:
+            #if there are no orders remaining, break the loop
             logger.error(f"No orders remaining on page {page}.\n")
             break
-
+        
+        #add the orders to the list we will use to save to a csv
         all_orders.extend(orders)
-        logger.info(f"Orders fetched from page {page}/{max_pages}: {len(orders)}. Total Orders fetched: {len(all_orders)}.\n")
 
+        #update the total pages and page number
+        logger.info(f"\rOrders fetched from page {page}/{max_pages}", end="")
+
+        #update the total pages and page number
         total_pages += 1
         page += 1
 
+        #wait for the next page this is to avoid rate limiting and can be configured in the settings at the top of the script.
         print(f"\rNow fetching page {page} of {max_pages}...", end="")
         time.sleep(market_orders_wait_time)
 
