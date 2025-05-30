@@ -161,7 +161,7 @@ def fetch_market_orders_test_mode(test_mode):
     # we also set the error count to 0, this is the number of errors we have encountered
     #w e also set the total pages to 0, this is the total number of pages we have fetched
     page = 1
-    max_pages = 1
+    max_pages = 3
     retries: int = 0
     total_retries: int = 0  # Changed from total_tries to total_retries for consistency
     error_count: int = 0
@@ -232,7 +232,7 @@ def fetch_market_orders_test_mode(test_mode):
         all_orders.extend(orders)
 
         #update the total pages and page number
-        logger.info(f"\rOrders fetched from page {page}/{max_pages}", end="")
+        logger.info(f"Orders fetched from page {page}/{max_pages}")
 
         #update the total pages and page number
         total_pages += 1
