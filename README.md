@@ -1,11 +1,10 @@
----------------------------------------------
-ESI Structure Market Tools for Eve Online
-vers. 0.2
----------------------------------------------
+# ESI Structure Market Tools for Eve Online
+## Version 0.2
+
 Tool for retrieving and analyzing data from Eve Online player-owned markets. Written in Python 3.12.
 
 ## Change Log
- - **version 2.0** - Implements new functionality to update a Google Sheets workbook
+- **version 2.0** - Implements new functionality to update a Google Sheets workbook
 
 ## What it Does
 
@@ -15,7 +14,7 @@ Tool for retrieving and analyzing data from Eve Online player-owned markets. Wri
 - Retrieves current Jita prices for comparison
 - Processes data into summary statistics with configurable logging
 - Exports data as CSV files with automatic file management
-- Automatically updates a Google sheet if selected in the MarketStructures8.py configuration option. 
+- Automatically updates a Google sheet if selected in the MarketStructures8.py configuration option
 
 ## Installation
 
@@ -54,8 +53,10 @@ pip install -r requirements.txt
    - Copy your CLIENT_ID and SECRET_KEY
 
 2. Create a `.env` file with your credentials:
+```env
 CLIENT_ID = 'your_client_id'
 SECRET_KEY = 'your_secret_key'
+```
 
 3. Project Structure:
 ```
@@ -135,17 +136,17 @@ This tool can automatically update a Google Sheets workbook with the latest mark
 ### 6. Configure the Tool
 1. Open `gsheets_updater.py`
 2. Update these two lines with your information:
-   ```python
-   credentials_file = "google_credentials.json"  # Your downloaded credentials file
-   workbook_id = "your-spreadsheet-id-here"     # Your spreadsheet ID
-   ```
+```python
+credentials_file = "google_credentials.json"  # Your downloaded credentials file
+workbook_id = "your-spreadsheet-id-here"     # Your spreadsheet ID
+```
 
 The tool will now automatically update your Google Sheet with the latest market data whenever it runs.
 
 > **Important Security Note**: If you're using Git for version control, make sure to add your Google credentials file to `.gitignore` to prevent accidentally sharing your credentials. Add this line to your `.gitignore` file:
-> ```
-> google_credentials.json
-> ```
+```gitignore
+google_credentials.json
+```
 
 ## Configuration
 
