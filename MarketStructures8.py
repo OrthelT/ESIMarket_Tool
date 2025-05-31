@@ -12,6 +12,7 @@ from datetime import datetime
 from ESI_OAUTH_FLOW import get_token
 from file_cleanup import rename_move_and_archive_csv
 from get_jita_prices import get_jita_prices
+from gsheets_updater import update_all_google_sheets
 
 # LICENSE
 # This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -36,31 +37,33 @@ prompt_config_mode = True #change this to false if you do not want to be prompte
 structure_id = 1035466617946 # Currently set to 4-HWWF Keepstar. Enter another structure ID for a player-owned structure that you have access to.
 region_id = 10000003 # Currently set to Vale of the Silent. Enter another region ID for a different region.
 verbose_console_logging = True #change this to false to disable console logging. The log file will still be created.
+update_google_sheets = False # Set to True to enable automatic Google Sheets updates
 
 #add a delay between ESI requests to avoid rate limiting.
 market_orders_wait_time = 0.1 #change this to increase the wait time between market orders ESI requests.
 market_history_wait_time = 0.3 #change this to increase the wait time between market history ESI requests to avoid rate limiting.
 
 # Set up logging
-def setup_logging(level=logging.INFO):
+def setup_logging(log_name = 'market_structures', log_file_name = 'market_structures.log'):
     # Create logs directory if it doesn't exist
-    os.makedirs('logs', exist_ok=True)
+    log_dir='logs'
+    os.makedirs(log_dir, exist_ok=True)
     
     # Create logger
-    logger = logging.getLogger('MarketStructures')
-    logger.setLevel(level)
+    logger = logging.getLogger(log_name)
+    logger.setLevel(level=logging.INFO)
     
     # Create formatters
-    file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    console_formatter = logging.Formatter('%(message)s')
+    file_formatter = logging.Formatter('%(asctime)s|%(name)s|%(levelname)s|%(funcName)s|%(lineno)d|%(message)s')
+    console_formatter = logging.Formatter('%(funcName)s|%(lineno)d|%(message)s')
     
     # Create and configure file handler (rotating log files)
     file_handler = RotatingFileHandler(
-        'logs/market_structures.log',
+        f'{log_dir}/{log_name}',
         maxBytes=1024*1024,  # 1MB
         backupCount=5
     )
-    file_handler.setLevel(level)
+    file_handler.setLevel(level=logging.INFO)
     file_handler.setFormatter(file_formatter)
     
     # Create and configure console handler
@@ -75,7 +78,7 @@ def setup_logging(level=logging.INFO):
     return logger
 
 # Initialize logger, optional level argument can be passed to set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
-logger = setup_logging()
+logger = setup_logging(log_name='market_structures')
 
 # set variables for ESI requests
 MARKET_STRUCTURE_URL = f'https://esi.evetech.net/latest/markets/structures/{structure_id}/?page='
@@ -104,6 +107,7 @@ def configuration_mode():
               verbose_console_logging: {verbose_console_logging}
               market_orders_wait_time: {market_orders_wait_time}
               market_history_wait_time: {market_history_wait_time}
+              update_google_sheets: {update_google_sheets}
               
               These settings will be used for the next run, and can be changed in the code directly.
               -----------------------------------------------
@@ -687,6 +691,19 @@ if __name__ == '__main__':
 
         logger.info("saving jita data")
         with_jita_price.to_csv('output/latest/jita_prices.csv', index=False)
+
+        # Update Google Sheets if enabled
+        if update_google_sheets:
+            try:
+                logger.info("Attempting to update Google Sheets...")
+                update_all_google_sheets()
+                logger.info("Google Sheets update completed successfully")
+            except Exception as e:
+                logger.error(f"Failed to update Google Sheets: {str(e)}")
+                print(f"Please check that the credentials file and the workbook id are correct and properly configured in gsheets_updater.py")
+                logger.info("Continuing with local file operations...")
+                # Continue execution as the local files are already saved
+
     # Completed stats
     finish_time = datetime.now()
     total_time = finish_time - start_time
@@ -694,6 +711,8 @@ if __name__ == '__main__':
     print("="*80)
     print("ESI Request Completed Successfully.")
     print(f"Data for {len(final_data)} items retrieved.")
+    if update_google_sheets:
+        print("Google Sheets update was enabled for this run.")
     print("-"*80)
     hist_time_seconds = hist_time_to_complete.total_seconds()
     total_time_seconds = total_time.total_seconds()

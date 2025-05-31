@@ -59,6 +59,15 @@ def rename_move_and_archive_csv(src_folder, latest_folder, archive_folder, clean
     shutil.copy(latest_file_path, latest_file_dest)
     logger.info(f"Latest file copied to: {latest_file_dest}")
 
+    history_files = [f for f in other_csv_files if f.startswith("markethistory")]
+    history_files.sort(key=lambda f: os.path.getmtime(os.path.join(src_folder, f)), reverse=True)
+    latest_history_file = history_files[0]
+    latest_history_file_path = os.path.join(src_folder, latest_history_file)
+    new_history_file_name = "markethistory_latest.csv"
+    latest_history_file_dest = os.path.join(latest_folder, new_history_file_name)
+    shutil.copy(latest_history_file_path, latest_history_file_dest)
+    logger.info(f"Latest history file copied to: {latest_history_file_dest}")
+
     if cleanup_mode == "archive":
         # Move files to appropriate folders
         for file in other_csv_files[1:]:
