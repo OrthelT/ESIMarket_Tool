@@ -687,7 +687,7 @@ if __name__ == '__main__':
         latest_folder = os.path.join(src_folder, "latest")
         archive_folder = os.path.join(src_folder, "archive")
         #cleanup files. "Full cleanup true" moves old files from output to archive.
-        rename_move_and_archive_csv(src_folder, latest_folder, archive_folder, True)
+        rename_move_and_archive_csv(src_folder, latest_folder, archive_folder, "archive")
 
         logger.info("saving jita data")
         with_jita_price.to_csv('output/latest/jita_prices.csv', index=False)
@@ -718,7 +718,9 @@ if __name__ == '__main__':
     total_time_seconds = total_time.total_seconds()
     
     logger.info(
-        f"Time to complete:\nMARKET ORDERS: {round(mkt_time_seconds, 2)}s, avg: {round(Avg_market_response_time, 
-        2)}ms\nMARKET_HISTORY: {round(hist_time_seconds, 2)}s, avg: {round(hist_time_seconds/len(type_ids), 2)}ms")
+        "Time to complete:\n"
+        f"MARKET ORDERS: {round(mkt_time_seconds, 2)}s, avg: {round(Avg_market_response_time, 2)}ms\n"
+        f"MARKET_HISTORY: {round(hist_time_seconds, 2)}s, avg: {round(hist_time_seconds/len(type_ids), 2)}ms"
+    )
     logger.info(f"TOTAL TIME TO COMPLETE: {round(total_time_seconds, 2)}s")
     logger.info("="*80)
