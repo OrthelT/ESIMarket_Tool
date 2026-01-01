@@ -1,0 +1,9 @@
+*.json
+.venv/
+.env
+__pycache__/
+
+# IDE directories
+.idea/
+.vscode/
+*.csv

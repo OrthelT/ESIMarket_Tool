@@ -14,7 +14,7 @@ Tool for retrieving and analyzing data from Eve Online player-owned markets. Wri
 - Retrieves current Jita prices for comparison
 - Processes data into summary statistics with configurable logging
 - Exports data as CSV files with automatic file management
-- Automatically updates a Google sheet if selected in the MarketStructures8.py configuration option
+- Automatically updates a Google sheet if selected in the esi_markets.py configuration option
 
 ## Installation
 
@@ -56,6 +56,9 @@ pip install -r requirements.txt
 ```env
 CLIENT_ID = 'your_client_id'
 SECRET_KEY = 'your_secret_key'
+GOGGLE_KEY = '[your_google_credentials_file].json'
+GOOGLE_SHEET_ID = [your Google sheet id from the sheet url. see explanation in Google Sheets Integration Setup section]
+
 ```
 
 3. Project Structure:
@@ -66,7 +69,7 @@ project_folder/
 ├── ESI_OAUTH_FLOW.py      # Authentication handling
 ├── file_cleanup.py        # File management
 ├── get_jita_prices.py     # Jita price retrieval
-├── MarketStructures8.py   # Main script
+├── esi_markets.py         # Main script
 ├── data/
 │   ├── type_ids.csv       # Items to track
 │   └── type_ids_test.csv  # Test items list
@@ -134,11 +137,10 @@ This tool can automatically update a Google Sheets workbook with the latest mark
    - Give it "Editor" access
 
 ### 6. Configure the Tool
-1. Open `gsheets_updater.py`
-2. Update these two lines with your information:
+1. Update your .env file with these two lines with your information:
 ```python
-credentials_file = "google_credentials.json"  # Your downloaded credentials file
-workbook_id = "your-spreadsheet-id-here"     # Your spreadsheet ID
+GOGGLE_KEY = "google_credentials.json"  # Your downloaded credentials file
+GOOGLE_SHEET_ID = "your-spreadsheet-id-here"     # Your spreadsheet ID
 ```
 
 The tool will now automatically update your Google Sheet with the latest market data whenever it runs.
@@ -150,7 +152,7 @@ google_credentials.json
 
 ## Configuration
 
-Key settings in MarketStructures8.py:
+Key settings in esi_markets.py:
 - `prompt_config_mode`: Enable/disable configuration prompts
 - `structure_id`: Structure to monitor (default: 4-HWWF Keepstar)
 - `region_id`: Region for market history (default: Vale of the Silent)
@@ -160,7 +162,7 @@ Key settings in MarketStructures8.py:
 - `update_google_sheets`: Enable/disable automatic Google Sheets updates (default: False)
 
 To enable Google Sheets updates:
-1. Set `update_google_sheets = True` in MarketStructures8.py
+1. Set `update_google_sheets = True` in esi_markets.py
 2. Make sure you've completed the Google Sheets setup steps above
 3. The script will automatically update your Google Sheet after each successful data collection
 
@@ -170,7 +172,7 @@ Note: If Google Sheets update fails, the script will continue running and save d
 
 Run the script:
 ```bash
-python MarketStructures8.py
+python esi_markets.py
 ```
 
 The script offers two modes:
@@ -195,4 +197,3 @@ File Management:
 - Market history preserved indefinitely
 
 For questions: Discord @orthel_toralen
-

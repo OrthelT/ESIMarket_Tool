@@ -1,10 +1,10 @@
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
-from MarketStructures8 import setup_logging
+from logging_utils import setup_logging
 
 
-logger = setup_logging(log_name='gsheets_updater')
+logger = setup_logging(log_name='googlesheets_updater')
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",

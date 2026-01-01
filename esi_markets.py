@@ -12,7 +12,8 @@ from datetime import datetime
 from ESI_OAUTH_FLOW import get_token
 from file_cleanup import rename_move_and_archive_csv
 from get_jita_prices import get_jita_prices
-from gsheets_updater import update_all_google_sheets
+from googlesheets_updater import update_all_google_sheets
+from logging_utils import setup_logging
 
 # LICENSE
 # This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -43,42 +44,8 @@ update_google_sheets = False # Set to True to enable automatic Google Sheets upd
 market_orders_wait_time = 0.1 #change this to increase the wait time between market orders ESI requests.
 market_history_wait_time = 0.3 #change this to increase the wait time between market history ESI requests to avoid rate limiting.
 
-# Set up logging
-def setup_logging(log_name = 'market_structures', log_file_name = 'market_structures.log'):
-    # Create logs directory if it doesn't exist
-    log_dir='logs'
-    os.makedirs(log_dir, exist_ok=True)
-    
-    # Create logger
-    logger = logging.getLogger(log_name)
-    logger.setLevel(level=logging.INFO)
-    
-    # Create formatters
-    file_formatter = logging.Formatter('%(asctime)s|%(name)s|%(levelname)s|%(funcName)s|%(lineno)d|%(message)s')
-    console_formatter = logging.Formatter('%(funcName)s|%(lineno)d|%(message)s')
-    
-    # Create and configure file handler (rotating log files)
-    file_handler = RotatingFileHandler(
-        f'{log_dir}/{log_name}',
-        maxBytes=1024*1024,  # 1MB
-        backupCount=5
-    )
-    file_handler.setLevel(level=logging.INFO)
-    file_handler.setFormatter(file_formatter)
-    
-    # Create and configure console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO if verbose_console_logging else logging.WARNING)
-    console_handler.setFormatter(console_formatter)
-    
-    # Add handlers to loggery
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-    
-    return logger
-
 # Initialize logger, optional level argument can be passed to set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
-logger = setup_logging(log_name='market_structures')
+logger = setup_logging(log_name='market_structures', verbose_console_logging=verbose_console_logging)
 
 # set variables for ESI requests
 MARKET_STRUCTURE_URL = f'https://esi.evetech.net/latest/markets/structures/{structure_id}/?page='
@@ -700,7 +667,7 @@ if __name__ == '__main__':
                 logger.info("Google Sheets update completed successfully")
             except Exception as e:
                 logger.error(f"Failed to update Google Sheets: {str(e)}")
-                print(f"Please check that the credentials file and the workbook id are correct and properly configured in gsheets_updater.py")
+                print(f"Please check that the credentials file and the workbook id are correct and properly configured in googlesheets_updater.py")
                 logger.info("Continuing with local file operations...")
                 # Continue execution as the local files are already saved
 
