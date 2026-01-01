@@ -1,19 +1,16 @@
 import os
+import sys
 import requests
 import time
 import csv
 import logging
 from logging.handlers import RotatingFileHandler
+import tomllib
+from pathlib import Path
 
 import pandas as pd
 from requests import ReadTimeout
 from datetime import datetime
-
-from ESI_OAUTH_FLOW import get_token
-from file_cleanup import rename_move_and_archive_csv
-from get_jita_prices import get_jita_prices
-from googlesheets_updater import update_all_google_sheets
-from logging_utils import setup_logging
 
 # LICENSE
 # This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -22,27 +19,86 @@ from logging_utils import setup_logging
 # but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 # See the GNU General Public License for more details. <https://www.gnu.org/licenses/>.
 #
-#ESI Structure Market Tools for Eve Online VERSION 0.2
-# #Developed as a learning project, to access Eve's enfeebled ESI. I'm not a real programmer, ok? Don't laugh at me.
+# ESI Structure Market Tools for Eve Online VERSION 0.2
 # Contact orthel_toralen on Discord with questions.
 
-print("="*80)
+
+class ConfigurationError(Exception):
+    """Raised when configuration is missing or invalid"""
+    pass
+
+
+def print_setup_hint():
+    """Print a helpful message about running setup"""
+    print("\n" + "=" * 60)
+    print("  CONFIGURATION REQUIRED")
+    print("=" * 60)
+    print("\n  Run the setup wizard to configure the tool:\n")
+    print("    uv run python setup.py")
+    print("\n  Or manually create/edit config.toml and .env files.")
+    print("  See README.md for detailed instructions.")
+    print("=" * 60 + "\n")
+
+
+def load_config(config_path="config.toml"):
+    """Load configuration from TOML file"""
+    config_file = Path(config_path)
+    if not config_file.exists():
+        print_setup_hint()
+        raise ConfigurationError(
+            f"Configuration file '{config_path}' not found."
+        )
+
+    with open(config_file, 'rb') as f:
+        return tomllib.load(f)
+
+
+def check_env_file():
+    """Check if .env file exists and has required values"""
+    env_file = Path(".env")
+    if not env_file.exists():
+        print_setup_hint()
+        raise ConfigurationError(".env file not found. EVE API credentials required.")
+
+    content = env_file.read_text()
+    if "CLIENT_ID" not in content or "your_client_id" in content:
+        print_setup_hint()
+        raise ConfigurationError("CLIENT_ID not configured in .env file.")
+    if "SECRET_KEY" not in content or "your_secret_key" in content:
+        print_setup_hint()
+        raise ConfigurationError("SECRET_KEY not configured in .env file.")
+
+
+# Load configuration with helpful error messages
+try:
+    config = load_config()
+    check_env_file()
+except ConfigurationError as e:
+    print(f"\nError: {e}")
+    sys.exit(1)
+
+# Import other modules after config check passes
+from ESI_OAUTH_FLOW import get_token
+from file_cleanup import rename_move_and_archive_csv
+from get_jita_prices import get_jita_prices
+from googlesheets_updater import update_all_google_sheets
+from logging_utils import setup_logging
+
+print("=" * 80)
 print("ESI Structure Market Tools for Eve Online")
-print("="*80)
+print("=" * 80)
+
+# Extract configuration values
+prompt_config_mode = config['mode']['prompt_config_mode']
+structure_id = config['esi']['structure_id']
+region_id = config['esi']['region_id']
+verbose_console_logging = config['logging']['verbose_console_logging']
+update_google_sheets = config['google_sheets']['enabled']
+market_orders_wait_time = config['rate_limiting']['market_orders_wait_time']
+market_history_wait_time = config['rate_limiting']['market_history_wait_time']
 
 # load environment, where we store our client id and secret key.
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
-
-#CONFIGURATION
-prompt_config_mode = True #change this to false if you do not want to be prompted to use configuration mode
-structure_id = 1035466617946 # Currently set to 4-HWWF Keepstar. Enter another structure ID for a player-owned structure that you have access to.
-region_id = 10000003 # Currently set to Vale of the Silent. Enter another region ID for a different region.
-verbose_console_logging = True #change this to false to disable console logging. The log file will still be created.
-update_google_sheets = False # Set to True to enable automatic Google Sheets updates
-
-#add a delay between ESI requests to avoid rate limiting.
-market_orders_wait_time = 0.1 #change this to increase the wait time between market orders ESI requests.
-market_history_wait_time = 0.3 #change this to increase the wait time between market history ESI requests to avoid rate limiting.
 
 # Initialize logger, optional level argument can be passed to set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
 logger = setup_logging(log_name='market_structures', verbose_console_logging=verbose_console_logging)
@@ -580,8 +636,8 @@ def insert_SDE_data(df: pd.DataFrame) -> pd.DataFrame:
     logger.info("SDE data query complete")
     return df
 
-if __name__ == '__main__':
-
+def main():
+    """Main entry point for the ESI Market Tool"""
     # hit the stopwatch to see how long it takes
     start_time = datetime.now()
     logger.info(start_time)
@@ -595,25 +651,25 @@ if __name__ == '__main__':
 
     if test_mode:
         logger.info("test mode selected")
-        idslocation = 'data/type_ids_test.csv'
+        idslocation = config['paths']['data']['type_ids_test']
         market_orders = fetch_market_orders_test_mode(test_mode)
     else:
         logger.info("standard mode selected")
-        idslocation = 'data/type_ids.csv'
+        idslocation = config['paths']['data']['type_ids']
         market_orders = fetch_market_orders_standard_mode()
 
     Mkt_time_to_complete = datetime.now() - start_time
     # Convert timedelta to seconds or milliseconds before rounding
     mkt_time_seconds = Mkt_time_to_complete.total_seconds()
     Avg_market_response_time = (mkt_time_seconds * 1000) / len(market_orders)  # Convert to ms
-    
+
     logger.info(
         f'done. Time to complete market orders: {round(mkt_time_seconds, 2)}s, avg market response time: {round(Avg_market_response_time, 2)}ms')
 
     # code for retrieving type ids
     type_idsCSV = pd.read_csv(idslocation)
 
-    #added error handling for column labels
+    # added error handling for column labels
     try:
         type_ids = type_idsCSV['type_ids'].tolist()
     except KeyError:
@@ -649,11 +705,11 @@ if __name__ == '__main__':
         historical_df.to_csv(history_filename, index=False)
         final_data.to_csv(market_stats_filename, index=False)
 
-        #save a copy of market stats to update spreadsheet consistently named
+        # save a copy of market stats to update spreadsheet consistently named
         src_folder = r"output"
         latest_folder = os.path.join(src_folder, "latest")
         archive_folder = os.path.join(src_folder, "archive")
-        #cleanup files. "Full cleanup true" moves old files from output to archive.
+        # cleanup files. "Full cleanup true" moves old files from output to archive.
         rename_move_and_archive_csv(src_folder, latest_folder, archive_folder, True)
 
         logger.info("saving jita data")
@@ -667,7 +723,7 @@ if __name__ == '__main__':
                 logger.info("Google Sheets update completed successfully")
             except Exception as e:
                 logger.error(f"Failed to update Google Sheets: {str(e)}")
-                print(f"Please check that the credentials file and the workbook id are correct and properly configured in googlesheets_updater.py")
+                print("Google Sheets update failed. Run 'uv run python setup.py' to configure.")
                 logger.info("Continuing with local file operations...")
                 # Continue execution as the local files are already saved
 
@@ -675,17 +731,21 @@ if __name__ == '__main__':
     finish_time = datetime.now()
     total_time = finish_time - start_time
 
-    print("="*80)
+    print("=" * 80)
     print("ESI Request Completed Successfully.")
     print(f"Data for {len(final_data)} items retrieved.")
     if update_google_sheets:
         print("Google Sheets update was enabled for this run.")
-    print("-"*80)
+    print("-" * 80)
     hist_time_seconds = hist_time_to_complete.total_seconds()
     total_time_seconds = total_time.total_seconds()
-    
+
     logger.info(
-        f"Time to complete:\nMARKET ORDERS: {round(mkt_time_seconds, 2)}s, avg: {round(Avg_market_response_time, 
-        2)}ms\nMARKET_HISTORY: {round(hist_time_seconds, 2)}s, avg: {round(hist_time_seconds/len(type_ids), 2)}ms")
+        f"Time to complete:\nMARKET ORDERS: {round(mkt_time_seconds, 2)}s, avg: {round(Avg_market_response_time, 2)}ms\n"
+        f"MARKET_HISTORY: {round(hist_time_seconds, 2)}s, avg: {round(hist_time_seconds/len(type_ids), 2)}ms")
     logger.info(f"TOTAL TIME TO COMPLETE: {round(total_time_seconds, 2)}s")
-    logger.info("="*80)
+    logger.info("=" * 80)
+
+
+if __name__ == '__main__':
+    main()

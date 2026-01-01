@@ -6,4 +6,9 @@ __pycache__/
 # IDE directories
 .idea/
 .vscode/
-*.csv
+
+# Data files
+market*.csv
+
+# Runtime files
+logs/

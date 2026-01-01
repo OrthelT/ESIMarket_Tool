@@ -1,0 +1,4 @@
+type_id,type_name,total_volume_remain,price_5th_percentile,min_price,avg_of_avg_price,avg_daily_volume,jita_sell,jita_buy
+34,Tritanium,2987987031,3.959,3.95,4.08,424973708.36,4.29,4.03
+36,Mexallon,220875474,51.917500000000004,51.91,50.47,92848051.18,49.9,47.13
+37,Isogen,149559226,188.215,186.0,245.83,17320746.04,211.56,190.63

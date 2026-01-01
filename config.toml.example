@@ -1,0 +1,54 @@
+# ESI Market Tool Configuration
+# Opinionated defaults for immediate use - customize as needed
+
+[mode]
+# Interactive prompts on startup (recommended for first-time users)
+prompt_config_mode = true
+
+[esi]
+# Structure to monitor: 4-HWWF Keepstar in Vale of the Silent
+# Change this to your preferred player-owned structure ID
+structure_id = 1035466617946
+
+# Region for market history: Vale of the Silent (10000003)
+# Common alternatives: The Forge/Jita (10000002), Domain/Amarr (10000043)
+region_id = 10000003
+
+[logging]
+# Verbose console output recommended for monitoring progress
+verbose_console_logging = true
+
+[rate_limiting]
+# Conservative defaults to stay well under ESI rate limits
+# Market orders: 0.1s = ~10 req/sec, well under 150 req/sec limit
+market_orders_wait_time = 0.1
+
+# Market history: 0.3s = ~200 req/min, safely under 300 req/min limit
+market_history_wait_time = 0.3
+
+[google_sheets]
+# Disabled by default - enable after completing Google Cloud setup
+enabled = false
+
+# Standard credential file name (excluded from git via .gitignore)
+credentials_file = "google_credentials.json"
+
+# Get this from your Google Sheets URL after setup
+workbook_id = ""
+
+# Standard worksheet names - create these in your Google Sheets workbook
+[google_sheets.worksheets]
+market_stats = "market_stats"
+jita_prices = "jita_prices"
+market_history = "market_history"
+
+[paths.csv]
+# Output paths - automatically managed by file_cleanup.py
+market_stats = "output/latest/marketstats_latest.csv"
+jita_prices = "output/latest/jita_prices.csv"
+market_history = "output/latest/markethistory_latest.csv"
+
+[paths.data]
+# Input data files containing item type IDs to track
+type_ids = "data/type_ids.csv"          # Full production list
+type_ids_test = "data/type_ids_test.csv"  # Small test subset

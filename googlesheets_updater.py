@@ -1,34 +1,67 @@
+import sys
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
+import tomllib
+from pathlib import Path
 from logging_utils import setup_logging
 
 
 logger = setup_logging(log_name='googlesheets_updater')
 
+
+class ConfigurationError(Exception):
+    """Raised when configuration is missing or invalid"""
+    pass
+
+
+def print_setup_hint():
+    """Print a helpful message about running setup"""
+    print("\n" + "=" * 60)
+    print("  CONFIGURATION REQUIRED")
+    print("=" * 60)
+    print("\n  Run the setup wizard to configure the tool:\n")
+    print("    uv run python setup.py")
+    print("\n  Or manually create/edit config.toml and .env files.")
+    print("  See README.md for detailed instructions.")
+    print("=" * 60 + "\n")
+
+
+def load_config(config_path="config.toml"):
+    """Load configuration from TOML file"""
+    config_file = Path(config_path)
+    if not config_file.exists():
+        print_setup_hint()
+        raise ConfigurationError(
+            f"Configuration file '{config_path}' not found."
+        )
+
+    with open(config_file, 'rb') as f:
+        return tomllib.load(f)
+
+
+# Load configuration with helpful error messages
+try:
+    config = load_config()
+except ConfigurationError as e:
+    print(f"\nError: {e}")
+    sys.exit(1)
+
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive", ]
 
-#configure the paths to the csv files and the worksheet names
-market_stats_csv_path = 'output/latest/marketstats_latest.csv'
-jita_prices_csv_path = 'output/latest/jita_prices.csv'
-market_history_csv_path = 'output/latest/markethistory_latest.csv'
+# Extract configuration values
+market_stats_csv_path = config['paths']['csv']['market_stats']
+jita_prices_csv_path = config['paths']['csv']['jita_prices']
+market_history_csv_path = config['paths']['csv']['market_history']
 
-#configure the worksheet names, make sure they match the names in the spreadsheet
-market_stats_worksheet_name = 'market_stats'
-jita_prices_worksheet_name = 'jita_prices'
-market_history_worksheet_name = 'market_history'
+market_stats_worksheet_name = config['google_sheets']['worksheets']['market_stats']
+jita_prices_worksheet_name = config['google_sheets']['worksheets']['jita_prices']
+market_history_worksheet_name = config['google_sheets']['worksheets']['market_history']
 
-# the workbook id is the string of random characters the workbook in the url of the spreadsheet:
-# for example:
-    # https://docs.google.com/spreadsheets/d/1JTmVeiq1Tn6msEx2U736xQwikgnyLtIi7ogiBMGsRFc/edit#gid=0
-# # the worksheet id is:1JTmVeiq1Tn6msEx2U736xQwikgnyLtIi7ogiBMGsRFc
-# workbook_id = "1JTmVeiq1Tn6msEx2U736xQwikgnyLtIi7ogiBMGsRFc"
-
-#configure the credentials file and the workbook id
-credentials_file = "your credentials file here.json"
-workbook_id = "your workbook id here"
+credentials_file = config['google_sheets']['credentials_file']
+workbook_id = config['google_sheets']['workbook_id']
 
 
 def get_gsheets_client(credentials_file, scopes=SCOPES):

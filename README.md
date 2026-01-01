@@ -47,6 +47,20 @@ pip install -r requirements.txt
 ```
 
 ### All Platforms
+
+#### Quick Setup (Recommended)
+Run the interactive setup wizard:
+```bash
+uv run python setup.py
+```
+
+This will guide you through configuring:
+- EVE API credentials (CLIENT_ID, SECRET_KEY)
+- ESI settings (structure ID, region)
+- Rate limiting options
+- Google Sheets integration (optional)
+
+#### Manual Setup
 1. Register through the Eve developer portal: https://developers.eveonline.com/
    - Create an application with scope: `esi-markets.structure_markets.v1`
    - Set callback URL (example: `http://localhost:8000/callback`)
@@ -56,27 +70,34 @@ pip install -r requirements.txt
 ```env
 CLIENT_ID = 'your_client_id'
 SECRET_KEY = 'your_secret_key'
-GOGGLE_KEY = '[your_google_credentials_file].json'
-GOOGLE_SHEET_ID = [your Google sheet id from the sheet url. see explanation in Google Sheets Integration Setup section]
-
 ```
 
-3. Project Structure:
+3. (Optional) Customize `config.toml` with your preferences:
+   - The tool ships with sensible defaults in `config.toml`
+   - Edit structure_id, region_id, or other settings as needed
+   - See `config.toml.example` for reference
+
+4. Project Structure:
 ```
 project_folder/
-├── .env                    # Credentials
+├── .env                    # API credentials (CLIENT_ID, SECRET_KEY)
+├── config.toml             # Application settings (opinionated defaults)
+├── config.toml.example     # Configuration reference
 ├── .gitignore
-├── ESI_OAUTH_FLOW.py      # Authentication handling
-├── file_cleanup.py        # File management
-├── get_jita_prices.py     # Jita price retrieval
-├── esi_markets.py         # Main script
+├── setup.py                # Interactive setup wizard (TUI)
+├── esi_markets.py          # Main script
+├── ESI_OAUTH_FLOW.py       # Authentication handling
+├── file_cleanup.py         # File management
+├── get_jita_prices.py      # Jita price retrieval
+├── googlesheets_updater.py # Google Sheets integration
+├── logging_utils.py        # Logging configuration
 ├── data/
-│   ├── type_ids.csv       # Items to track
-│   └── type_ids_test.csv  # Test items list
+│   ├── type_ids.csv        # Items to track
+│   └── type_ids_test.csv   # Test items list
 └── output/
-    ├── archive/           # Older files (auto-cleaned after 30 days)
-    ├── latest/           # Most recent data
-    └── markethistory/    # Historical data
+    ├── archive/            # Older files (auto-cleaned after 30 days)
+    ├── latest/             # Most recent data
+    └── markethistory/      # Historical data
 ```
 
 ## Google Sheets Integration Setup
@@ -137,10 +158,12 @@ This tool can automatically update a Google Sheets workbook with the latest mark
    - Give it "Editor" access
 
 ### 6. Configure the Tool
-1. Update your .env file with these two lines with your information:
-```python
-GOGGLE_KEY = "google_credentials.json"  # Your downloaded credentials file
-GOOGLE_SHEET_ID = "your-spreadsheet-id-here"     # Your spreadsheet ID
+1. Open `config.toml` and update the Google Sheets section:
+```toml
+[google_sheets]
+enabled = true  # Set to true to enable Google Sheets updates
+credentials_file = "google_credentials.json"
+workbook_id = "your-spreadsheet-id-here"  # Your spreadsheet ID from step 4
 ```
 
 The tool will now automatically update your Google Sheet with the latest market data whenever it runs.
@@ -152,19 +175,25 @@ google_credentials.json
 
 ## Configuration
 
-Key settings in esi_markets.py:
-- `prompt_config_mode`: Enable/disable configuration prompts
-- `structure_id`: Structure to monitor (default: 4-HWWF Keepstar)
-- `region_id`: Region for market history (default: Vale of the Silent)
-- `verbose_console_logging`: Control console output detail
-- `market_orders_wait_time`: Delay between market requests (default: 0.1s)
-- `market_history_wait_time`: Delay between history requests (default: 0.3s)
-- `update_google_sheets`: Enable/disable automatic Google Sheets updates (default: False)
+All settings are configured in `config.toml`:
 
-To enable Google Sheets updates:
-1. Set `update_google_sheets = True` in esi_markets.py
-2. Make sure you've completed the Google Sheets setup steps above
-3. The script will automatically update your Google Sheet after each successful data collection
+### Main Settings
+- `[mode]` - Operational modes
+  - `prompt_config_mode`: Enable/disable interactive configuration prompts
+- `[esi]` - ESI API settings
+  - `structure_id`: Structure to monitor (default: 4-HWWF Keepstar)
+  - `region_id`: Region for market history (default: Vale of the Silent)
+- `[logging]` - Logging configuration
+  - `verbose_console_logging`: Control console output detail
+- `[rate_limiting]` - Request throttling
+  - `market_orders_wait_time`: Delay between market requests (default: 0.1s)
+  - `market_history_wait_time`: Delay between history requests (default: 0.3s)
+- `[google_sheets]` - Google Sheets integration
+  - `enabled`: Enable/disable automatic Google Sheets updates (default: false)
+  - `credentials_file`: Path to Google service account credentials
+  - `workbook_id`: Your Google Sheets workbook ID
+
+See `config.toml.example` for full configuration options with detailed comments.
 
 Note: If Google Sheets update fails, the script will continue running and save data locally. Check the logs for any update errors.
 

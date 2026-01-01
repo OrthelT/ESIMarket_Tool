@@ -15,18 +15,35 @@ This project uses `uv` for dependency management:
 # Install dependencies
 uv sync
 
+# Run interactive setup wizard (recommended for first-time setup)
+uv run python setup.py
+
 # Run the main application
 uv run python esi_markets.py
-# or
-python esi_markets.py
 ```
+
+### Setup Wizard
+The `setup.py` script provides a beautiful TUI for configuration:
+
+```bash
+uv run python setup.py
+```
+
+Features:
+- Interactive menus with color-coded options
+- Real-time status display for .env and config.toml
+- Helpful hints and explanations for each setting
+- Automatic file generation and updates
+
+When configuration is missing or invalid, running `esi_markets.py` will display a helpful message suggesting to run the setup wizard.
 
 ### Running the Application
 The main entry point is `esi_markets.py`. On first run, it will:
-1. Prompt for configuration mode (test vs standard)
-2. Open browser for Eve SSO authentication
-3. Fetch market data from configured structure
-4. Save results to CSV files in `output/` directory
+1. Check for valid configuration (suggests setup if missing)
+2. Prompt for configuration mode (test vs standard)
+3. Open browser for Eve SSO authentication
+4. Fetch market data from configured structure
+5. Save results to CSV files in `output/` directory
 
 ### Testing
 Use test mode for quick verification:
@@ -78,24 +95,38 @@ Use test mode for quick verification:
 
 ### Configuration
 
-All configuration is at the top of `esi_markets.py`:
+All configuration is in `config.toml` (ships with opinionated defaults):
 
-```python
-prompt_config_mode = True  # Enable/disable interactive config
+```toml
+[mode]
+prompt_config_mode = true  # Enable/disable interactive config
+
+[esi]
 structure_id = 1035466617946  # 4-HWWF Keepstar (default)
 region_id = 10000003  # Vale of the Silent (for history)
-verbose_console_logging = True
-update_google_sheets = False  # Enable Google Sheets export
+
+[logging]
+verbose_console_logging = true  # Console log verbosity
+
+[rate_limiting]
 market_orders_wait_time = 0.1  # Delay between order requests
 market_history_wait_time = 0.3  # Delay between history requests
+
+[google_sheets]
+enabled = false  # Enable Google Sheets export
+credentials_file = "google_credentials.json"
+workbook_id = "your-spreadsheet-id-here"
 ```
+
+Configuration is loaded via `tomllib` (Python 3.11+) at startup. Both `esi_markets.py` and `googlesheets_updater.py` read from this file.
 
 ### Data Files
 
 **Input:**
+- `config.toml` - Application configuration (opinionated defaults included)
+- `.env` - Eve SSO credentials (`CLIENT_ID`, `SECRET_KEY`)
 - `data/type_ids.csv` - Full list of items to track (production)
 - `data/type_ids_test.csv` - Abbreviated list (testing)
-- `.env` - Eve SSO credentials (`CLIENT_ID`, `SECRET_KEY`)
 
 **Output Structure:**
 ```
@@ -117,9 +148,11 @@ The code monitors two ESI limits:
 ### Google Sheets Setup
 
 If modifying Google Sheets integration, note:
-- Service account credentials file path configured in `googlesheets_updater.py`
-- Workbook ID extracted from spreadsheet URL
-- Worksheet names are hardcoded: `market_stats`, `jita_prices`, `market_history`
+- All settings configured in `config.toml` under `[google_sheets]` section
+- Set `enabled = true` to activate Google Sheets updates
+- Service account credentials file path: `credentials_file` in config
+- Workbook ID from spreadsheet URL: `workbook_id` in config
+- Worksheet names configurable under `[google_sheets.worksheets]`
 - Updates fail gracefully - local CSV files still saved
 
 ### Logging
