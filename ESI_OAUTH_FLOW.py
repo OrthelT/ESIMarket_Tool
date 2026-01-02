@@ -22,7 +22,9 @@ token_file = 'token.json'
 # Functions: Oauth2 Flow
 # -----------------------------------------------
 # call this function from other programs to get an ESI token
-def get_token(requested_scope: str | list[str]) -> dict | None:
+def get_token(requested_scope: str | list[str] | None = None) -> dict | None:
+    if requested_scope is None:
+        requested_scope = ["esi-planets.manage_planets.v1","esi-fleets.read_fleet.v1","esi-fittings.read_fittings.v1","esi-corporations.read_medals.v1","esi-corporations.read_fw_stats.v1","esi-corporations.read_freelance_jobs.v1","publicData","esi-wallet.read_character_wallet.v1","esi-wallet.read_corporation_wallet.v1","esi-search.search_structures.v1","esi-universe.read_structures.v1","esi-corporations.read_corporation_membership.v1","esi-assets.read_assets.v1","esi-markets.structure_markets.v1","esi-corporations.read_structures.v1","esi-characters.read_chat_channels.v1","esi-industry.read_character_jobs.v1","esi-markets.read_character_orders.v1","esi-characters.read_blueprints.v1","esi-characters.read_corporation_roles.v1","esi-corporations.track_members.v1","esi-wallet.read_corporation_wallets.v1","esi-characters.read_notifications.v1","esi-corporations.read_divisions.v1","esi-corporations.read_contacts.v1","esi-assets.read_corporation_assets.v1","esi-corporations.read_titles.v1","esi-corporations.read_blueprints.v1","esi-corporations.read_standings.v1","esi-corporations.read_starbases.v1","esi-corporations.read_container_logs.v1","esi-corporations.read_facilities.v1","esi-characters.read_titles.v1","esi-corporations.read_projects.v1"]
     """
     Retrieve a token, refreshing it using the refresh token if available.
     This function attempts to load an existing token and checks if it is still valid. If the token is

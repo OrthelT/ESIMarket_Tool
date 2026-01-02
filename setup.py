@@ -24,6 +24,8 @@ from rich.style import Style
 from rich.theme import Theme
 from rich import print as rprint
 
+from gspread.utils import extract_id_from_url
+
 # Custom theme inspired by Claude's color palette
 THEME = Theme({
     "title": "bold #D4A574",
@@ -204,7 +206,7 @@ def main_menu():
             ("5", "Logging", "Configure console output verbosity"),
             ("6", "View Current Config", "Display all current settings"),
             ("7", "Reset to Defaults", "Restore default configuration"),
-            ("q", "Quit", "Exit setup"),
+            ("q", "Quit(q)", "Exit setup"),
         ]
 
         menu_table = Table(
@@ -214,7 +216,7 @@ def main_menu():
             padding=(0, 1),
             expand=True,
         )
-        menu_table.add_column("Key", style="menu.number", width=4, justify="center")
+        menu_table.add_column("Key", style="menu.number", width=4, justify="center", highlight=True)
         menu_table.add_column("Option", style="menu.item", width=24)
         menu_table.add_column("Description", style="menu.desc")
 
@@ -225,7 +227,7 @@ def main_menu():
         console.print()
 
         choice = Prompt.ask(
-            "[accent]Select an option[/]",
+            "[accent]Select an option[/] [hint](q to quit)[/]",
             choices=["1", "2", "3", "4", "5", "6", "7", "q", "Q"],
             show_choices=False,
         ).lower()
@@ -445,10 +447,11 @@ def setup_google_sheets():
         console.print()
         console.print("[hint]Get the workbook ID from your spreadsheet URL:[/]")
         console.print("[hint]https://docs.google.com/spreadsheets/d/[value]<WORKBOOK_ID>[/]/edit[/]")
-        workbook_id = Prompt.ask(
+        workbook_url = Prompt.ask(
             "[key]Workbook ID[/]",
             default=current_workbook,
         )
+        workbook_id = extract_id_from_url(workbook_url)
 
         config.setdefault("google_sheets", {})
         config["google_sheets"]["enabled"] = True

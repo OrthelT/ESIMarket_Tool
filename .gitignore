@@ -12,3 +12,6 @@ market*.csv
 
 # Runtime files
 logs/
+get_corp_blueprints.py
+data/test_data/
+dev.py

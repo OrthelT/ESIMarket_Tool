@@ -16,9 +16,9 @@ market_orders_wait_time = 0.1
 market_history_wait_time = 0.3
 
 [google_sheets]
-enabled = false
-credentials_file = "google_credentials.json"
-workbook_id = ""
+enabled = true
+credentials_file = "wcupdates-261109743eb9.json"
+workbook_id = "https://docs.google.com/spreadsheets/d/1fltqDk3hJJQz12KcFt038LwgpFjJO5--DUyPKAO4uzU/edit?usp=sharing"
 
 [google_sheets.worksheets]
 market_stats = "market_stats"
