@@ -1,12 +1,10 @@
 import sys
 import gspread
 from google.oauth2.service_account import Credentials
-from gspread.client import Client
 import pandas as pd
 import tomllib
 from pathlib import Path
 from logging_utils import setup_logging
-import os
 
 logger = setup_logging(log_name='googlesheets_updater')
 
@@ -204,42 +202,5 @@ def update_all_google_sheets():
         print(f"Error updating {market_history_worksheet_name} worksheet: {e}")
         raise e
 
-def test_import_data():
-
-    test_files = os.listdir("data/test_files")
-    test_workbook_id_or_url = "https://docs.google.com/spreadsheets/d/1fltqDk3hJJQz12KcFt038LwgpFjJO5--DUyPKAO4uzU/edit?usp=sharing"
-
-    for file in test_files:
-        if file.endswith('.csv'):
-            worksheet_name = "csv-test"
-        elif file.endswith('.tsv'):
-            worksheet_name = "tsv_test"
-        elif file.endswith('.xlsx'):
-            worksheet_name = "xlsx_test"
-        elif file.endswith('.json'):
-            worksheet_name = "json_test"
-        else:
-            raise ValueError(f"Unsupported file type: {file}")
-        import_data(
-            worksheet_name="test",
-            workbook_id_or_url=test_workbook_id_or_url,
-            file_path=f"data/test_files/{file}"
-        )
-
 if __name__ == "__main__":
-    client = get_gsheets_client(credentials_file=credentials_file, scopes=SCOPES)
-
-    spreadsheets = client.list_spreadsheet_files()
-    sheet_list  = []
-    for spreadsheet in spreadsheets:
-        sheet_list.append(spreadsheet['name'])
-
-    from rich.prompt import Prompt
-    choice_numbers = [str(i) for i in range(1, len(sheet_list) + 1)]
-    choice_names = sheet_list
-    choice = Prompt.ask(f"Select a sheet to import data into: {choice_numbers}", choices=choice_names)
-    print(choice_names[int(choice) - 1])
-    for spreadsheet in spreadsheets:
-        if spreadsheet['name'] == choice_names[int(choice) - 1]:
-            print(spreadsheet['id'])
-            break
+    pass

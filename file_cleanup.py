@@ -90,8 +90,8 @@ def rename_move_and_archive_csv(src_folder, latest_folder, archive_folder, clean
 
     elif cleanup_mode == "latest_only":
         # Remove all but latest file
-        input("Are you sure you want to remove all but the latest file? (y/n)")
-        if input == "y":
+        confirm = input("Are you sure you want to remove all but the latest file? (y/n)")
+        if confirm == "y":
             for file in [f for f in os.listdir(archive_folder) if f.endswith(".csv")]:
                 os.remove(os.path.join(archive_folder, file))
                 logger.info(f"Removed from archive: {file}")

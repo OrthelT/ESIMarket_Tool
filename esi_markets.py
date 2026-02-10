@@ -201,9 +201,8 @@ def fetch_market_orders_test_mode(test_mode):
     while page <= max_pages:
         response = requests.get(MARKET_STRUCTURE_URL + str(page), headers=headers)
 
-        #set the max pages to the number of pages available in the ESI
-        if 'X-Pages' in response.headers:
-            max_pages = int(response.headers['X-Pages'])
+        # In test mode, keep max_pages at 3 regardless of X-Pages header
+        # (standard mode uses fetch_market_orders_standard_mode instead)
 
         #make sure we don't hit the error limit and get our IP banned
         errorsleft = int(response.headers.get('X-ESI-Error-Limit-Remain', 0))
@@ -367,7 +366,7 @@ def fetch_market_orders_standard_mode():
             orders = response.json()
         except ValueError:
             logger.error(f"Failed to decode JSON response from page {page}\n")
-            failed_pages_count += 1
+            error_count += 1
             continue
     
 
@@ -689,8 +688,6 @@ def main():
     orders = pd.DataFrame(market_orders)
     new_filtered_orders = filterorders(type_ids, orders)
     merged_sell_orders = aggregate_sell_orders(new_filtered_orders)
-    merge_market_stats(merged_sell_orders, historical_df)
-
     final_data = merge_market_stats(merged_sell_orders, historical_df)
     with_jita_price = get_jita_prices(final_data)
 
