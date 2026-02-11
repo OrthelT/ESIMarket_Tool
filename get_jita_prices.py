@@ -1,14 +1,19 @@
 """Fetch Jita market prices from the Fuzzworks aggregates API."""
 
+import aiohttp
 import pandas as pd
-import requests
 
 
-def get_jita_prices(market_data: pd.DataFrame, user_agent: str = "") -> pd.DataFrame:
+async def get_jita_prices(
+    market_data: pd.DataFrame,
+    session: aiohttp.ClientSession,
+    user_agent: str = "",
+) -> pd.DataFrame:
     """Fetch Jita sell/buy prices and merge with market data.
 
     Args:
         market_data: DataFrame with a 'type_id' column
+        session: aiohttp session to use for the request
         user_agent: User-Agent header string for the HTTP request
 
     Returns:
@@ -19,8 +24,8 @@ def get_jita_prices(market_data: pd.DataFrame, user_agent: str = "") -> pd.DataF
     ids_str = _get_type_ids_str(market_data)
     url = f'{base_url}{region_id}&types={ids_str}'
     headers = {'User-Agent': user_agent} if user_agent else {}
-    response = requests.get(url, headers=headers)
-    data = response.json()
+    async with session.get(url, headers=headers) as response:
+        data = await response.json(content_type=None)
     jita_data = _parse_fuzzworks_json(data)
     return _merge_jita_data(jita_data, market_data)
 
@@ -57,7 +62,3 @@ def _parse_fuzzworks_json(data: dict) -> pd.DataFrame:
     df['jita_sell'] = df['jita_sell'].round(2)
     df['jita_buy'] = df['jita_buy'].round(2)
     return df
-
-
-if __name__ == '__main__':
-    pass

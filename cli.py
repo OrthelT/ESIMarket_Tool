@@ -5,6 +5,7 @@ Supports interactive mode (default) and --headless for scheduled execution.
 """
 
 import argparse
+import asyncio
 import os
 import sys
 import logging
@@ -58,7 +59,7 @@ def _print_progress(msg: str) -> None:
     print(msg, end="" if msg.startswith("\r") else "\n")
 
 
-def run(args: argparse.Namespace) -> None:
+async def run(args: argparse.Namespace) -> None:
     """Main orchestration: load config, authenticate, fetch, process, export."""
     global logger
 
@@ -103,7 +104,7 @@ def run(args: argparse.Namespace) -> None:
     latest_dir = output_dir / 'latest'
     latest_dir.mkdir(parents=True, exist_ok=True)
 
-    # 6. Authenticate
+    # 6. Authenticate (sync — runs before async event loop is busy)
     SCOPE = ['esi-markets.structure_markets.v1']
     from ESI_OAUTH_FLOW import get_token
     token = get_token(
@@ -117,58 +118,59 @@ def run(args: argparse.Namespace) -> None:
         print("\nError: Authentication failed. In headless mode, a valid token.json must exist.")
         print("Run interactively first: uv run python esi_markets.py")
         sys.exit(1)
-    esi = ESIClient(config=config, token=token)
 
-    # 7. Fetch market orders
-    start_time = datetime.now()
-    logger.info(f"Run started at {start_time}")
+    async with ESIClient(config=config, token=token) as esi:
+        # 7. Fetch market orders
+        start_time = datetime.now()
+        logger.info(f"Run started at {start_time}")
 
-    orders_result = esi.fetch_market_orders(
-        structure_id=config.esi.structure_id,
-        wait_time=config.rate_limiting.market_orders_wait_time,
-        progress_callback=progress_callback,
-    )
+        orders_result = await esi.fetch_market_orders(
+            structure_id=config.esi.structure_id,
+            wait_time=config.rate_limiting.market_orders_wait_time,
+            progress_callback=progress_callback,
+        )
 
-    market_orders = orders_result.data
-    mkt_time = orders_result.elapsed_seconds
-    avg_time = (mkt_time * 1000 / len(market_orders)) if market_orders else 0
-    logger.info(f"Market orders: {mkt_time:.2f}s, avg: {avg_time:.2f}ms")
+        market_orders = orders_result.data
+        mkt_time = orders_result.elapsed_seconds
+        avg_time = (mkt_time * 1000 / len(market_orders)) if market_orders else 0
+        logger.info(f"Market orders: {mkt_time:.2f}s, avg: {avg_time:.2f}ms")
 
-    # 8. Read type IDs
-    type_ids_df = pd.read_csv(config.paths.data.type_ids)
-    for col in ('type_ids', 'type_id', 'typeID'):
-        if col in type_ids_df.columns:
-            type_ids = type_ids_df[col].tolist()
-            break
-    else:
-        logger.error(f"No recognized type_id column in {idslocation}")
-        sys.exit(1)
+        # 8. Read type IDs
+        type_ids_path = config.paths.data.type_ids
+        type_ids_df = pd.read_csv(type_ids_path)
+        for col in ('type_ids', 'type_id', 'typeID'):
+            if col in type_ids_df.columns:
+                type_ids = type_ids_df[col].tolist()
+                break
+        else:
+            logger.error(f"No recognized type_id column in {type_ids_path}")
+            sys.exit(1)
 
-    # 9. Fetch market history
-    print("-" * 80)
-    print(f"Querying ESI history for {len(type_ids)} items.")
-    print("-" * 80)
-    history_result = esi.fetch_market_history(
-        region_id=config.esi.region_id,
-        type_ids=type_ids,
-        wait_time=config.rate_limiting.market_history_wait_time,
-        progress_callback=progress_callback,
-    )
-    historical_df = pd.DataFrame(history_result.data)
-    hist_time = history_result.elapsed_seconds
+        # 9. Fetch market history
+        print("-" * 80)
+        print(f"Querying ESI history for {len(type_ids)} items.")
+        print("-" * 80)
+        history_result = await esi.fetch_market_history(
+            region_id=config.esi.region_id,
+            type_ids=type_ids,
+            wait_time=config.rate_limiting.market_history_wait_time,
+            progress_callback=progress_callback,
+        )
+        historical_df = pd.DataFrame(history_result.data)
+        hist_time = history_result.elapsed_seconds
 
-    print("\n")
-    print("=" * 80)
-    print("Market History Complete")
-    print("=" * 80)
+        print("\n")
+        print("=" * 80)
+        print("Market History Complete")
+        print("=" * 80)
 
-    # 10. Process data
-    orders_df = pd.DataFrame(market_orders)
-    filtered = filter_orders(type_ids, orders_df)
-    sell_agg = aggregate_sell_orders(filtered)
-    sde_names = esi.fetch_sde_names(sell_agg['type_id'].unique().tolist())
-    final_data = merge_market_stats(sell_agg, historical_df, sde_names)
-    with_jita = get_jita_prices(final_data, user_agent=ua_string)
+        # 10. Process data
+        orders_df = pd.DataFrame(market_orders)
+        filtered = filter_orders(type_ids, orders_df)
+        sell_agg = aggregate_sell_orders(filtered)
+        sde_names = await esi.fetch_sde_names(sell_agg['type_id'].unique().tolist())
+        final_data = merge_market_stats(sell_agg, historical_df, sde_names)
+        with_jita = await get_jita_prices(final_data, session=esi._session, user_agent=ua_string)
 
     # 11. Save files
     logger.info("Saving CSV files...")
@@ -211,7 +213,7 @@ def run(args: argparse.Namespace) -> None:
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
     args = parse_args(argv)
-    run(args)
+    asyncio.run(run(args))
 
 
 if __name__ == '__main__':
