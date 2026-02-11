@@ -304,3 +304,28 @@ class ESIClient:
         except (KeyError, ValueError) as e:
             logger.error(f"Failed to parse SDE names response: {e}")
             return {}
+
+    async def test_connectivity(self, structure_id: int) -> dict:
+        """Quick connectivity test — fetch 1 page of orders from a structure.
+
+        Returns:
+            Dict with 'success', 'order_count', 'total_pages', and 'error' keys.
+        """
+        url = f'https://esi.evetech.net/latest/markets/structures/{structure_id}/?page=1'
+        try:
+            async with self._session.get(url, headers=self._auth_headers) as response:
+                if response.status != 200:
+                    body = await response.json(content_type=None)
+                    return {
+                        'success': False,
+                        'error': body.get('error', f'HTTP {response.status}'),
+                    }
+                data = await response.json(content_type=None)
+                total_pages = int(response.headers.get('X-Pages', 1))
+                return {
+                    'success': True,
+                    'order_count': len(data),
+                    'total_pages': total_pages,
+                }
+        except Exception as e:
+            return {'success': False, 'error': str(e)}

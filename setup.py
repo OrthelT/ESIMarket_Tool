@@ -4,6 +4,7 @@ ESI Market Tool - Interactive Setup
 A beautiful TUI for configuring the ESI Market Tool
 """
 
+import asyncio
 import csv
 import os
 import sys
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from dotenv import load_dotenv
 
 from rich.console import Console
 from rich.panel import Panel
@@ -224,6 +226,7 @@ def main_menu():
             ("7", "Logging", "Configure console output verbosity"),
             ("8", "Output Directory", "Set where CSV files are saved"),
             ("9", "View Current Config", "Display all current settings"),
+            ("r", "Run ESI Query", "Test connectivity or run the full pipeline"),
             ("0", "Reset to Defaults", "Restore default configuration"),
             ("q", "Quit(q)", "Exit setup"),
         ]
@@ -247,7 +250,7 @@ def main_menu():
 
         choice = Prompt.ask(
             "[accent]Select an option[/] [hint](q to quit)[/]",
-            choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "q", "Q"],
+            choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "r", "R", "0", "q", "Q"],
             show_choices=False,
         ).lower()
 
@@ -269,6 +272,8 @@ def main_menu():
             setup_output_directory()
         elif choice == "9":
             view_config()
+        elif choice == "r":
+            run_esi_query()
         elif choice == "0":
             reset_config()
         elif choice == "q":
@@ -714,6 +719,145 @@ def _import_type_ids_csv():
     else:
         _save_type_ids(import_ids)
         console.print(f"[success]Replaced: now tracking {len(import_ids)} items.[/]")
+
+    Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+
+
+# -----------------------------------------------
+# Run ESI Query
+# -----------------------------------------------
+
+def run_esi_query():
+    """Run ESI query from setup — connectivity test or full pipeline"""
+    while True:
+        clear_screen()
+        print_header()
+
+        console.print(Panel(
+            "[title]Run ESI Query[/]\n\n"
+            "Test your ESI connection or run the full data pipeline.\n\n"
+            "[hint]Requires valid credentials in .env and a saved config.[/]",
+            box=ROUNDED,
+            border_style="info",
+        ))
+        console.print()
+
+        sub_items = [
+            ("1", "Quick Connectivity Test", "Fetch 1 page to verify access"),
+            ("2", "Full Pipeline Run", "Run the complete data pipeline (headless)"),
+            ("b", "Back", "Return to main menu"),
+        ]
+
+        sub_table = Table(show_header=False, box=ROUNDED, border_style="accent", padding=(0, 1), expand=True)
+        sub_table.add_column("Key", style="menu.number", width=4, justify="center")
+        sub_table.add_column("Option", style="menu.item", width=28)
+        sub_table.add_column("Description", style="menu.desc")
+        for key, option, desc in sub_items:
+            sub_table.add_row(f"[{key}]", option, desc)
+
+        console.print(sub_table)
+        console.print()
+
+        choice = Prompt.ask(
+            "[accent]Select an option[/]",
+            choices=["1", "2", "b", "B"],
+            show_choices=False,
+        ).lower()
+
+        if choice == "1":
+            _run_connectivity_test()
+        elif choice == "2":
+            _run_full_pipeline()
+        elif choice == "b":
+            break
+
+
+def _run_connectivity_test():
+    """Quick ESI connectivity test"""
+    clear_screen()
+    print_header()
+
+    console.print("[hint]Loading configuration...[/]")
+
+    try:
+        from config import load_config as load_app_config, check_env_file
+        config = load_app_config()
+        check_env_file(config.project_root)
+    except Exception as e:
+        console.print(f"[error]Configuration error: {e}[/]")
+        Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+        return
+
+    # Load credentials
+    os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+    load_dotenv(dotenv_path=config.project_root / '.env')
+    client_id = os.getenv('CLIENT_ID')
+    secret_key = os.getenv('SECRET_KEY')
+
+    console.print("[hint]Authenticating...[/]")
+    from ESI_OAUTH_FLOW import get_token
+    ua_string = config.user_agent.format_header()
+    token = get_token(
+        client_id=client_id,
+        secret_key=secret_key,
+        requested_scope=['esi-markets.structure_markets.v1'],
+        user_agent=ua_string,
+    )
+    if token is None:
+        console.print("[error]Authentication failed. Run setup to configure credentials.[/]")
+        Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+        return
+
+    console.print(f"[hint]Testing connection to structure {config.esi.structure_id}...[/]")
+
+    async def _test():
+        from esi_client import ESIClient
+        async with ESIClient(config=config, token=token) as esi:
+            return await esi.test_connectivity(config.esi.structure_id)
+
+    result = asyncio.run(_test())
+
+    if result['success']:
+        console.print(f"\n[success]Connection successful![/]")
+        console.print(f"  Orders on page 1: [value]{result['order_count']}[/]")
+        console.print(f"  Total pages: [value]{result['total_pages']}[/]")
+    else:
+        console.print(f"\n[error]Connection failed: {result['error']}[/]")
+
+    Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+
+
+def _run_full_pipeline():
+    """Run the full ESI pipeline via cli.main()"""
+    clear_screen()
+    print_header()
+
+    console.print(Panel(
+        "[title]Full Pipeline Run[/]\n\n"
+        "This will run the complete data pipeline in headless mode:\n"
+        "  1. Authenticate with ESI\n"
+        "  2. Fetch all market orders\n"
+        "  3. Fetch market history for tracked items\n"
+        "  4. Process and save CSV files\n\n"
+        "[warning]This may take several minutes depending on item count.[/]",
+        box=ROUNDED,
+        border_style="info",
+    ))
+    console.print()
+
+    if not Confirm.ask("[key]Start full pipeline run?[/]", default=True):
+        return
+
+    console.print("\n[hint]Starting pipeline...[/]\n")
+
+    try:
+        from cli import main as cli_main
+        cli_main(['--headless'])
+        console.print("\n[success]Pipeline completed successfully![/]")
+    except SystemExit:
+        pass
+    except Exception as e:
+        console.print(f"\n[error]Pipeline failed: {e}[/]")
 
     Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
 
