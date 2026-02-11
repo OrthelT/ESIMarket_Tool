@@ -44,6 +44,7 @@ def get_token(
     requested_scope: str | list[str],
     token_path: Path = Path("token.json"),
     headless: bool = False,
+    user_agent: str = "",
 ) -> dict | None:
     """Retrieve a token, refreshing if available, or initiate OAuth flow.
 
@@ -53,6 +54,7 @@ def get_token(
         requested_scope: Scope(s) for the token request
         token_path: Path to the token cache file
         headless: If True, fail instead of opening a browser for initial auth
+        user_agent: User-Agent header string for OAuth requests
 
     Returns:
         Token dict if successful, None if authorization fails
@@ -63,7 +65,7 @@ def get_token(
     token = _load_token(token_path)
 
     if token:
-        oauth = _get_oauth_session(client_id, secret_key, token, requested_scope, token_path)
+        oauth = _get_oauth_session(client_id, secret_key, token, requested_scope, token_path, user_agent)
         expire = oauth.token['expires_at']
         logger.info(f'Token expires at {expire}')
         if expire < time.time():
@@ -82,6 +84,7 @@ def get_token(
             secret_key=secret_key,
             requested_scope=requested_scope,
             token_path=token_path,
+            user_agent=user_agent,
         )
 
 
@@ -140,13 +143,14 @@ def _get_authorization_code(
     secret_key: str,
     requested_scope: str | list[str],
     token_path: Path,
+    user_agent: str = "",
 ) -> dict:
     """Open browser for EVE SSO login and capture the authorization code.
 
     Starts a local HTTP server to automatically capture the redirect.
     Falls back to manual URL pasting if the server fails.
     """
-    oauth = _get_oauth_session(client_id, secret_key, token=None, requested_scope=requested_scope, token_path=token_path)
+    oauth = _get_oauth_session(client_id, secret_key, token=None, requested_scope=requested_scope, token_path=token_path, user_agent=user_agent)
     authorization_url, state = oauth.authorization_url(AUTHORIZATION_URL)
 
     print("Opening browser for EVE SSO login. Please authorize the requested scopes.")
@@ -177,11 +181,12 @@ def _get_oauth_session(
     token: dict | None = None,
     requested_scope: str | list[str] | None = None,
     token_path: Path = Path("token.json"),
+    user_agent: str = "",
 ) -> OAuth2Session:
     """Get an OAuth session, optionally with an existing token for auto-refresh."""
     extra = {'client_id': client_id, 'client_secret': secret_key}
     if token:
-        return OAuth2Session(
+        session = OAuth2Session(
             client_id,
             token=token,
             auto_refresh_url=TOKEN_URL,
@@ -189,7 +194,11 @@ def _get_oauth_session(
             token_updater=lambda t: _save_token(t, token_path),
         )
     else:
-        return OAuth2Session(client_id, redirect_uri=REDIRECT_URI, scope=requested_scope)
+        session = OAuth2Session(client_id, redirect_uri=REDIRECT_URI, scope=requested_scope)
+
+    if user_agent:
+        session.headers['User-Agent'] = user_agent
+    return session
 
 
 def _save_token(token: dict, token_path: Path) -> None:

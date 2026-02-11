@@ -122,6 +122,17 @@ def save_config(config: dict[str, Any]):
     lines.append(f"region_id = {config['esi']['region_id']}")
     lines.append("")
 
+    # User-Agent section
+    ua = config.get("user_agent", {})
+    lines.append("[user_agent]")
+    lines.append(f'app_name = "{ua.get("app_name", "ESI-Market-Tool")}"')
+    lines.append(f'app_version = "{ua.get("app_version", "0.2.0")}"')
+    lines.append(f'email = "{ua.get("email", "")}"')
+    lines.append(f'discord = "{ua.get("discord", "")}"')
+    lines.append(f'eve_character = "{ua.get("eve_character", "")}"')
+    lines.append(f'source_url = "{ua.get("source_url", "")}"')
+    lines.append("")
+
     # Logging section
     lines.append("[logging]")
     lines.append(f"verbose_console_logging = {'true' if config['logging']['verbose_console_logging'] else 'false'}")
@@ -199,12 +210,13 @@ def main_menu():
         menu_items = [
             ("1", "EVE API Credentials", "Set up CLIENT_ID and SECRET_KEY for ESI access"),
             ("2", "ESI Settings", "Configure structure ID and region"),
-            ("3", "Rate Limiting", "Adjust request timing to avoid API limits"),
-            ("4", "Google Sheets", "Set up automatic spreadsheet updates"),
-            ("5", "Logging", "Configure console output verbosity"),
-            ("6", "Output Directory", "Set where CSV files are saved"),
-            ("7", "View Current Config", "Display all current settings"),
-            ("8", "Reset to Defaults", "Restore default configuration"),
+            ("3", "User-Agent", "Identify your app to CCP (recommended)"),
+            ("4", "Rate Limiting", "Adjust request timing to avoid API limits"),
+            ("5", "Google Sheets", "Set up automatic spreadsheet updates"),
+            ("6", "Logging", "Configure console output verbosity"),
+            ("7", "Output Directory", "Set where CSV files are saved"),
+            ("8", "View Current Config", "Display all current settings"),
+            ("9", "Reset to Defaults", "Restore default configuration"),
             ("q", "Quit(q)", "Exit setup"),
         ]
 
@@ -227,7 +239,7 @@ def main_menu():
 
         choice = Prompt.ask(
             "[accent]Select an option[/] [hint](q to quit)[/]",
-            choices=["1", "2", "3", "4", "5", "6", "7", "8", "q", "Q"],
+            choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "q", "Q"],
             show_choices=False,
         ).lower()
 
@@ -236,16 +248,18 @@ def main_menu():
         elif choice == "2":
             setup_esi_settings()
         elif choice == "3":
-            setup_rate_limiting()
+            setup_user_agent()
         elif choice == "4":
-            setup_google_sheets()
+            setup_rate_limiting()
         elif choice == "5":
-            setup_logging()
+            setup_google_sheets()
         elif choice == "6":
-            setup_output_directory()
+            setup_logging()
         elif choice == "7":
-            view_config()
+            setup_output_directory()
         elif choice == "8":
+            view_config()
+        elif choice == "9":
             reset_config()
         elif choice == "q":
             console.print("\n[success]Setup complete![/] Run [highlight]uv run esi_markets.py[/] to start.\n")
@@ -355,6 +369,79 @@ def setup_esi_settings():
     save_config(config)
 
     console.print("\n[success]ESI settings saved![/]")
+    Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+
+
+def setup_user_agent():
+    """Configure User-Agent header for ESI requests"""
+    clear_screen()
+    print_header()
+
+    config = load_config()
+
+    console.print(Panel(
+        "[title]User-Agent Configuration[/]\n\n"
+        "CCP recommends identifying your application in ESI requests.\n"
+        "This helps them contact you if there are issues with your app.\n\n"
+        "[hint]At minimum, provide a contact email or Discord handle.[/]\n"
+        "[hint]All fields are optional but email is strongly recommended.[/]",
+        box=ROUNDED,
+        border_style="info",
+    ))
+    console.print()
+
+    ua = config.get("user_agent", {})
+
+    email = Prompt.ask(
+        "[key]Contact Email[/]",
+        default=ua.get("email", ""),
+    )
+    discord = Prompt.ask(
+        "[key]Discord Handle[/]",
+        default=ua.get("discord", ""),
+    )
+    eve_character = Prompt.ask(
+        "[key]Eve Character Name[/]",
+        default=ua.get("eve_character", ""),
+    )
+    source_url = Prompt.ask(
+        "[key]Source URL (e.g. GitHub repo)[/]",
+        default=ua.get("source_url", ""),
+    )
+    app_name = Prompt.ask(
+        "[key]App Name[/]",
+        default=ua.get("app_name", "ESI-Market-Tool"),
+    )
+    app_version = Prompt.ask(
+        "[key]App Version[/]",
+        default=ua.get("app_version", "0.2.0"),
+    )
+
+    config.setdefault("user_agent", {})
+    config["user_agent"]["app_name"] = app_name
+    config["user_agent"]["app_version"] = app_version
+    config["user_agent"]["email"] = email
+    config["user_agent"]["discord"] = discord
+    config["user_agent"]["eve_character"] = eve_character
+    config["user_agent"]["source_url"] = source_url
+    save_config(config)
+
+    # Show preview
+    parts = []
+    if email:
+        parts.append(email)
+    if discord:
+        parts.append(f"Discord: {discord}")
+    if eve_character:
+        parts.append(f"IGN: {eve_character}")
+    if source_url:
+        parts.append(source_url)
+    header = f"{app_name}/{app_version}"
+    if parts:
+        header += f" ({'; '.join(parts)})"
+    console.print(f"\n[hint]User-Agent preview:[/] [value]{header}[/]")
+
+    console.print("\n[success]User-Agent settings saved![/]")
     Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
 
 
@@ -579,6 +666,21 @@ def view_config():
     esi_table.add_row("Structure ID", str(config.get("esi", {}).get("structure_id", "Not set")))
     esi_table.add_row("Region ID", str(config.get("esi", {}).get("region_id", "Not set")))
     console.print(esi_table)
+    console.print()
+
+    # User-Agent
+    console.print(Rule("[title]User-Agent[/]", style="accent"))
+    ua = config.get("user_agent", {})
+    ua_table = Table(show_header=False, box=None, padding=(0, 2))
+    ua_table.add_column("Key", style="key")
+    ua_table.add_column("Value", style="value")
+    ua_table.add_row("App Name", ua.get("app_name", "ESI-Market-Tool"))
+    ua_table.add_row("Version", ua.get("app_version", "0.2.0"))
+    ua_table.add_row("Email", ua.get("email", "") or "[hint]Not set[/]")
+    ua_table.add_row("Discord", ua.get("discord", "") or "[hint]Not set[/]")
+    ua_table.add_row("Eve Character", ua.get("eve_character", "") or "[hint]Not set[/]")
+    ua_table.add_row("Source URL", ua.get("source_url", "") or "[hint]Not set[/]")
+    console.print(ua_table)
     console.print()
 
     # Rate Limiting

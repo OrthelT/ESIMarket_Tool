@@ -76,6 +76,12 @@ def run(args: argparse.Namespace) -> None:
         verbose_console_logging=config.logging.verbose_console_logging,
     )
 
+    # Log User-Agent info
+    ua_string = config.user_agent.format_header()
+    logger.info(f"User-Agent: {ua_string}")
+    if not config.user_agent.email:
+        logger.warning("No contact email in [user_agent] config. CCP recommends identifying your app.")
+
     print("=" * 80)
     print("ESI Structure Market Tools for Eve Online")
     print("=" * 80)
@@ -105,6 +111,7 @@ def run(args: argparse.Namespace) -> None:
         secret_key=secret_key,
         requested_scope=SCOPE,
         headless=args.headless,
+        user_agent=ua_string,
     )
     if token is None:
         print("\nError: Authentication failed. In headless mode, a valid token.json must exist.")
@@ -159,9 +166,9 @@ def run(args: argparse.Namespace) -> None:
     orders_df = pd.DataFrame(market_orders)
     filtered = filter_orders(type_ids, orders_df)
     sell_agg = aggregate_sell_orders(filtered)
-    sde_names = ESIClient.fetch_sde_names(sell_agg['type_id'].unique().tolist())
+    sde_names = esi.fetch_sde_names(sell_agg['type_id'].unique().tolist())
     final_data = merge_market_stats(sell_agg, historical_df, sde_names)
-    with_jita = get_jita_prices(final_data)
+    with_jita = get_jita_prices(final_data, user_agent=ua_string)
 
     # 11. Save files
     logger.info("Saving CSV files...")

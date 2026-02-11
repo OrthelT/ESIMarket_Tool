@@ -5,6 +5,14 @@
 structure_id = 1035466617946
 region_id = 10000003
 
+[user_agent]
+app_name = "ESI-Market-Tool"
+app_version = "0.2.0"
+email = ""
+discord = ""
+eve_character = ""
+source_url = ""
+
 [logging]
 verbose_console_logging = true
 

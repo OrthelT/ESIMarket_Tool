@@ -4,11 +4,12 @@ import pandas as pd
 import requests
 
 
-def get_jita_prices(market_data: pd.DataFrame) -> pd.DataFrame:
+def get_jita_prices(market_data: pd.DataFrame, user_agent: str = "") -> pd.DataFrame:
     """Fetch Jita sell/buy prices and merge with market data.
 
     Args:
         market_data: DataFrame with a 'type_id' column
+        user_agent: User-Agent header string for the HTTP request
 
     Returns:
         market_data with 'jita_sell' and 'jita_buy' columns added
@@ -17,7 +18,8 @@ def get_jita_prices(market_data: pd.DataFrame) -> pd.DataFrame:
     base_url = 'https://market.fuzzwork.co.uk/aggregates/?region='
     ids_str = _get_type_ids_str(market_data)
     url = f'{base_url}{region_id}&types={ids_str}'
-    response = requests.get(url)
+    headers = {'User-Agent': user_agent} if user_agent else {}
+    response = requests.get(url, headers=headers)
     data = response.json()
     jita_data = _parse_fuzzworks_json(data)
     return _merge_jita_data(jita_data, market_data)

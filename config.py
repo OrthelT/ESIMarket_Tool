@@ -26,6 +26,36 @@ class LoggingConfig:
 
 
 @dataclass(frozen=True)
+class UserAgentConfig:
+    app_name: str = "ESI-Market-Tool"
+    app_version: str = "0.2.0"
+    email: str = ""
+    discord: str = ""
+    eve_character: str = ""
+    source_url: str = ""
+
+    def format_header(self) -> str:
+        """Build a User-Agent string from configured fields.
+
+        Format: AppName/Version (contact info; source URL)
+        """
+        parts = []
+        if self.email:
+            parts.append(self.email)
+        if self.discord:
+            parts.append(f"Discord: {self.discord}")
+        if self.eve_character:
+            parts.append(f"IGN: {self.eve_character}")
+        if self.source_url:
+            parts.append(self.source_url)
+
+        header = f"{self.app_name}/{self.app_version}"
+        if parts:
+            header += f" ({'; '.join(parts)})"
+        return header
+
+
+@dataclass(frozen=True)
 class RateLimitConfig:
     market_orders_wait_time: float = 0.1
     market_history_wait_time: float = 0.3
@@ -68,6 +98,7 @@ class PathsConfig:
 @dataclass(frozen=True)
 class AppConfig:
     esi: ESIConfig = ESIConfig()
+    user_agent: UserAgentConfig = UserAgentConfig()
     logging: LoggingConfig = LoggingConfig()
     rate_limiting: RateLimitConfig = RateLimitConfig()
     google_sheets: GoogleSheetsConfig = GoogleSheetsConfig()
@@ -133,6 +164,7 @@ def load_config(config_path: str | Path = "config.toml") -> AppConfig:
 
     # Build nested dataclasses with defaults for missing keys
     esi = ESIConfig(**raw.get("esi", {}))
+    user_agent = UserAgentConfig(**raw.get("user_agent", {}))
     logging_cfg = LoggingConfig(**raw.get("logging", {}))
     rate_limiting = RateLimitConfig(**raw.get("rate_limiting", {}))
 
@@ -149,6 +181,7 @@ def load_config(config_path: str | Path = "config.toml") -> AppConfig:
 
     return AppConfig(
         esi=esi,
+        user_agent=user_agent,
         logging=logging_cfg,
         rate_limiting=rate_limiting,
         google_sheets=google_sheets,

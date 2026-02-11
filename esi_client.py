@@ -38,9 +38,15 @@ class ESIClient:
     def __init__(self, config: AppConfig, token: dict):
         self._config = config
         self._token = token
+        ua = config.user_agent.format_header()
         self._auth_headers = {
             'Authorization': f'Bearer {token["access_token"]}',
             'Content-Type': 'application/json',
+            'User-Agent': ua,
+        }
+        self._public_headers = {
+            'accept': 'application/json',
+            'User-Agent': ua,
         }
 
     def fetch_market_orders(
@@ -156,7 +162,6 @@ class ESIClient:
         """
         start = datetime.now()
         url_base = f'https://esi.evetech.net/latest/markets/{region_id}/history/?datasource=tranquility&type_id='
-        headers = {'accept': 'application/json'}
         timeout = 10
 
         item_count = len(type_ids)
@@ -184,7 +189,7 @@ class ESIClient:
             while page <= max_pages:
                 try:
                     req_start = datetime.now()
-                    response = requests.get(url_base + str(item), headers=headers, timeout=timeout)
+                    response = requests.get(url_base + str(item), headers=self._public_headers, timeout=timeout)
                     code = response.status_code
                     logger.debug(f"type_id: {item}, status: {code}")
 
@@ -267,8 +272,7 @@ class ESIClient:
 
         return result
 
-    @staticmethod
-    def fetch_sde_names(type_ids: list[int]) -> dict[int, str]:
+    def fetch_sde_names(self, type_ids: list[int]) -> dict[int, str]:
         """Fetch item names from the ESI universe/names endpoint.
 
         Args:
@@ -281,7 +285,7 @@ class ESIClient:
             return {}
 
         url = 'https://esi.evetech.net/latest/universe/names/?datasource=tranquility'
-        headers = {'Content-Type': 'application/json'}
+        headers = {**self._public_headers, 'Content-Type': 'application/json'}
 
         try:
             response = requests.post(url, headers=headers, json=type_ids)
