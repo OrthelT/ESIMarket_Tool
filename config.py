@@ -68,6 +68,7 @@ class DataPaths:
 class PathsConfig:
     csv: CsvPaths = CsvPaths()
     data: DataPaths = DataPaths()
+    output_dir: str = "output"
 
 
 @dataclass(frozen=True)
@@ -151,7 +152,8 @@ def load_config(config_path: str | Path = "config.toml") -> AppConfig:
     paths_raw = raw.get("paths", {})
     csv_paths = CsvPaths(**paths_raw.get("csv", {}))
     data_paths = DataPaths(**paths_raw.get("data", {}))
-    paths = PathsConfig(csv=csv_paths, data=data_paths)
+    output_dir = paths_raw.get("output_dir", "output")
+    paths = PathsConfig(csv=csv_paths, data=data_paths, output_dir=output_dir)
 
     return AppConfig(
         mode=mode,

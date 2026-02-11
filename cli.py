@@ -152,8 +152,11 @@ def run(args: argparse.Namespace) -> None:
         csv_save_mode = True
         progress_callback = _print_progress
 
-    # 5. Output directory
-    output_dir = args.output_dir or Path('output')
+    # 5. Output directory (CLI flag > config > default)
+    if args.output_dir:
+        output_dir = config.resolve_path(args.output_dir)
+    else:
+        output_dir = config.resolve_path(config.paths.output_dir)
     latest_dir = output_dir / 'latest'
     latest_dir.mkdir(parents=True, exist_ok=True)
 

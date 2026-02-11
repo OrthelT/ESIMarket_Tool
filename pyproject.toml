@@ -1,27 +1,18 @@
 [project]
 name = "esimarket-tool"
-version = "0.1.0"
+version = "0.2.0"
 description = "ESI Structure Market Tools for Eve Online"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
-    "certifi==2025.1.31",
-    "charset-normalizer==3.4.1",
-    "dotenv==0.9.9",
     "gspread>=6.2.1",
-    "idna==3.10",
-    "numpy==2.2.3",
-    "oauthlib==3.2.2",
-    "pandas==2.2.3",
-    "python-dateutil==2.9.0.post0",
-    "python-dotenv==1.0.1",
-    "pytz==2025.1",
-    "requests==2.32.3",
-    "requests-oauthlib==2.0.0",
-    "rich>=13.7.0",
-    "six==1.17.0",
-    "tzdata==2025.1",
-    "urllib3==2.3.0",
+    "numpy>=2.2",
+    "oauthlib>=3.2",
+    "pandas>=2.2",
+    "python-dotenv>=1.0",
+    "requests>=2.32",
+    "requests-oauthlib>=2.0",
+    "rich>=13.7",
 ]
 
 [project.scripts]

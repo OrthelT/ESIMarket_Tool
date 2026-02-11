@@ -151,6 +151,10 @@ def save_config(config: dict[str, Any]):
     lines.append("")
 
     # Paths section
+    lines.append("[paths]")
+    output_dir = config.get("paths", {}).get("output_dir", "output")
+    lines.append(f'output_dir = "{output_dir}"')
+    lines.append("")
     lines.append("[paths.csv]")
     lines.append(f'market_stats = "{config["paths"]["csv"]["market_stats"]}"')
     lines.append(f'jita_prices = "{config["paths"]["csv"]["jita_prices"]}"')
@@ -204,8 +208,9 @@ def main_menu():
             ("3", "Rate Limiting", "Adjust request timing to avoid API limits"),
             ("4", "Google Sheets", "Set up automatic spreadsheet updates"),
             ("5", "Logging", "Configure console output verbosity"),
-            ("6", "View Current Config", "Display all current settings"),
-            ("7", "Reset to Defaults", "Restore default configuration"),
+            ("6", "Output Directory", "Set where CSV files are saved"),
+            ("7", "View Current Config", "Display all current settings"),
+            ("8", "Reset to Defaults", "Restore default configuration"),
             ("q", "Quit(q)", "Exit setup"),
         ]
 
@@ -228,7 +233,7 @@ def main_menu():
 
         choice = Prompt.ask(
             "[accent]Select an option[/] [hint](q to quit)[/]",
-            choices=["1", "2", "3", "4", "5", "6", "7", "q", "Q"],
+            choices=["1", "2", "3", "4", "5", "6", "7", "8", "q", "Q"],
             show_choices=False,
         ).lower()
 
@@ -243,8 +248,10 @@ def main_menu():
         elif choice == "5":
             setup_logging()
         elif choice == "6":
-            view_config()
+            setup_output_directory()
         elif choice == "7":
+            view_config()
+        elif choice == "8":
             reset_config()
         elif choice == "q":
             console.print("\n[success]Setup complete![/] Run [highlight]uv run esi_markets.py[/] to start.\n")
@@ -507,6 +514,41 @@ def setup_logging():
     save_config(config)
 
     console.print("\n[success]Logging settings saved![/]")
+    Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+
+
+def setup_output_directory():
+    """Configure output directory"""
+    clear_screen()
+    print_header()
+
+    config = load_config()
+
+    console.print(Panel(
+        "[title]Output Directory[/]\n\n"
+        "Configure where CSV output files are saved.\n\n"
+        "[hint]Default:[/] [value]output[/] (relative to project root)\n\n"
+        "[info]Supports absolute paths and ~ for home directory.[/]\n"
+        "[info]Also configurable via CLI: --output-dir /path/to/dir[/]",
+        box=ROUNDED,
+        border_style="info",
+    ))
+    console.print()
+
+    current_dir = config.get("paths", {}).get("output_dir", "output")
+    console.print(f"[hint]Current output directory: [value]{current_dir}[/][/]")
+    console.print()
+
+    output_dir = Prompt.ask(
+        "[key]Output Directory[/]",
+        default=current_dir,
+    )
+
+    config.setdefault("paths", {})
+    config["paths"]["output_dir"] = output_dir
+    save_config(config)
+
+    console.print("\n[success]Output directory saved![/]")
     Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
 
 

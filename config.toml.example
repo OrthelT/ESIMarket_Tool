@@ -42,6 +42,11 @@ market_stats = "market_stats"
 jita_prices = "jita_prices"
 market_history = "market_history"
 
+[paths]
+# Base output directory for CSV files (supports ~ and absolute paths)
+# Also configurable via CLI: --output-dir /path/to/dir
+output_dir = "output"
+
 [paths.csv]
 # Output paths - automatically managed by file_cleanup.py
 market_stats = "output/latest/marketstats_latest.csv"
