@@ -1,8 +1,7 @@
 """
 CLI entry point and main orchestration for ESI Market Tool.
 
-Supports interactive mode (default), --headless for scheduled execution,
-and --mode test|standard to skip the interactive prompt.
+Supports interactive mode (default) and --headless for scheduled execution.
 """
 
 import argparse
@@ -15,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
 
-from config import load_config, check_env_file, ConfigurationError, AppConfig
+from config import load_config, check_env_file, ConfigurationError
 from esi_client import ESIClient
 from market_data import filter_orders, aggregate_sell_orders, merge_market_stats
 from export import (
@@ -30,13 +29,7 @@ logger: logging.Logger | None = None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse command-line arguments.
-
-    Flag resolution order:
-      1. --headless → forces prompt_config_mode=False, mode=standard, csv_save=True
-      2. --mode test|standard → skips interactive mode prompt
-      3. No flags → uses config.toml prompt_config_mode setting
-    """
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         prog='mktstatus',
         description='ESI Structure Market Tools for Eve Online',
@@ -45,12 +38,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         '--headless',
         action='store_true',
         help='Run without prompts (standard mode, CSV output, no interactive input)',
-    )
-    parser.add_argument(
-        '--mode',
-        choices=['test', 'standard'],
-        default=None,
-        help='Run mode: test (3 pages) or standard (all pages)',
     )
     parser.add_argument(
         '--output-dir',
@@ -64,42 +51,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help='Skip Google Sheets update even if enabled in config',
     )
     return parser.parse_args(argv)
-
-
-def _interactive_mode_selection(config: AppConfig) -> tuple[bool, bool]:
-    """Interactive mode selection (original configuration_mode + debug_mode logic).
-
-    Returns:
-        (test_mode, csv_save_mode)
-    """
-    config_choice = input("run in configuration mode? (y/n):")
-    if config_choice == 'y':
-        test_choice = input("run in testing mode? This will use abbreviated ESI calls for quick debugging (y/n):")
-        if test_choice == 'y':
-            test_mode = True
-            csv_input = input("save output to CSV? (y/n):")
-            csv_save_mode = csv_input == 'y'
-        else:
-            test_mode = False
-            csv_save_mode = True
-
-        print(f"""CONFIGURATION SETTINGS
-              -----------------------------------------------
-              prompt_config_mode: {config.mode.prompt_config_mode}
-              structure_id: {config.esi.structure_id}
-              region_id: {config.esi.region_id}
-              verbose_console_logging: {config.logging.verbose_console_logging}
-              market_orders_wait_time: {config.rate_limiting.market_orders_wait_time}
-              market_history_wait_time: {config.rate_limiting.market_history_wait_time}
-              update_google_sheets: {config.google_sheets.enabled}
-
-              These settings will be used for the next run, and can be changed in the code directly.
-              -----------------------------------------------
-              """)
-        input("Press Enter to continue or Ctrl+C to exit...")
-        return test_mode, csv_save_mode
-    else:
-        return False, True
 
 
 def _print_progress(msg: str) -> None:
@@ -135,22 +86,8 @@ def run(args: argparse.Namespace) -> None:
     client_id = os.getenv('CLIENT_ID')
     secret_key = os.getenv('SECRET_KEY')
 
-    # 4. Determine mode
-    if args.headless:
-        test_mode = False
-        csv_save_mode = True
-        progress_callback = _print_progress
-    elif args.mode:
-        test_mode = args.mode == 'test'
-        csv_save_mode = True
-        progress_callback = _print_progress
-    elif config.mode.prompt_config_mode:
-        test_mode, csv_save_mode = _interactive_mode_selection(config)
-        progress_callback = _print_progress
-    else:
-        test_mode = False
-        csv_save_mode = True
-        progress_callback = _print_progress
+    # 4. Progress callback (silent in headless mode)
+    progress_callback = _print_progress
 
     # 5. Output directory (CLI flag > config > default)
     if args.output_dir:
@@ -179,24 +116,11 @@ def run(args: argparse.Namespace) -> None:
     start_time = datetime.now()
     logger.info(f"Run started at {start_time}")
 
-    if test_mode:
-        logger.info("Test mode selected")
-        idslocation = config.paths.data.type_ids_test
-        orders_result = esi.fetch_market_orders(
-            structure_id=config.esi.structure_id,
-            max_pages=3,
-            wait_time=config.rate_limiting.market_orders_wait_time,
-            progress_callback=progress_callback,
-        )
-    else:
-        logger.info("Standard mode selected")
-        idslocation = config.paths.data.type_ids
-        orders_result = esi.fetch_market_orders(
-            structure_id=config.esi.structure_id,
-            max_pages=None,
-            wait_time=config.rate_limiting.market_orders_wait_time,
-            progress_callback=progress_callback,
-        )
+    orders_result = esi.fetch_market_orders(
+        structure_id=config.esi.structure_id,
+        wait_time=config.rate_limiting.market_orders_wait_time,
+        progress_callback=progress_callback,
+    )
 
     market_orders = orders_result.data
     mkt_time = orders_result.elapsed_seconds
@@ -204,7 +128,7 @@ def run(args: argparse.Namespace) -> None:
     logger.info(f"Market orders: {mkt_time:.2f}s, avg: {avg_time:.2f}ms")
 
     # 8. Read type IDs
-    type_ids_df = pd.read_csv(idslocation)
+    type_ids_df = pd.read_csv(config.paths.data.type_ids)
     for col in ('type_ids', 'type_id', 'typeID'):
         if col in type_ids_df.columns:
             type_ids = type_ids_df[col].tolist()
@@ -240,30 +164,29 @@ def run(args: argparse.Namespace) -> None:
     with_jita = get_jita_prices(final_data)
 
     # 11. Save files
-    if csv_save_mode:
-        logger.info("Saving CSV files...")
-        save_orders_csv(market_orders, output_dir)
-        save_history_csv(historical_df, output_dir)
-        save_stats_csv(final_data, output_dir)
+    logger.info("Saving CSV files...")
+    save_orders_csv(market_orders, output_dir)
+    save_history_csv(historical_df, output_dir)
+    save_stats_csv(final_data, output_dir)
 
-        # File cleanup: copy latest, archive old files
-        src_folder = str(output_dir)
-        latest_folder = str(latest_dir)
-        archive_folder = str(output_dir / 'archive')
-        rename_move_and_archive_csv(src_folder, latest_folder, archive_folder, "archive")
+    # File cleanup: copy latest, archive old files
+    src_folder = str(output_dir)
+    latest_folder = str(latest_dir)
+    archive_folder = str(output_dir / 'archive')
+    rename_move_and_archive_csv(src_folder, latest_folder, archive_folder, "archive")
 
-        save_jita_csv(with_jita, latest_dir)
+    save_jita_csv(with_jita, latest_dir)
 
-        # 12. Google Sheets
-        update_sheets = config.google_sheets.enabled and not args.no_sheets
-        if update_sheets:
-            try:
-                logger.info("Updating Google Sheets...")
-                update_all_google_sheets(config)
-                logger.info("Google Sheets update completed successfully")
-            except Exception as e:
-                logger.error(f"Failed to update Google Sheets: {e}")
-                print("Google Sheets update failed. Run 'uv run python setup.py' to configure.")
+    # 12. Google Sheets
+    update_sheets = config.google_sheets.enabled and not args.no_sheets
+    if update_sheets:
+        try:
+            logger.info("Updating Google Sheets...")
+            update_all_google_sheets(config)
+            logger.info("Google Sheets update completed successfully")
+        except Exception as e:
+            logger.error(f"Failed to update Google Sheets: {e}")
+            print("Google Sheets update failed. Run 'uv run python setup.py' to configure.")
 
     # 13. Summary
     total_time = (datetime.now() - start_time).total_seconds()

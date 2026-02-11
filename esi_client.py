@@ -46,15 +46,13 @@ class ESIClient:
     def fetch_market_orders(
         self,
         structure_id: int,
-        max_pages: int | None = None,
         wait_time: float = 0.1,
         progress_callback: Callable[[str], None] | None = None,
     ) -> FetchResult:
-        """Fetch market orders from a structure.
+        """Fetch all market orders from a structure.
 
         Args:
             structure_id: The structure to fetch orders from
-            max_pages: Cap on pages to fetch (None = all pages). Use 3 for test mode.
             wait_time: Seconds to wait between page requests
             progress_callback: Optional callback for progress messages (receives a string)
 
@@ -65,27 +63,22 @@ class ESIClient:
         url_base = f'https://esi.evetech.net/latest/markets/structures/{structure_id}/?page='
 
         page = 1
-        discovered_max = max_pages or 1  # Will be updated from X-Pages header
+        total_pages = 1  # Updated from X-Pages header on first response
         retries = 0
         result = FetchResult()
 
-        if max_pages:
-            logger.info(f"Fetching market orders (limited to {max_pages} pages)...")
-        else:
-            logger.info("Fetching market orders...")
+        logger.info("Fetching market orders...")
 
-        while page <= (max_pages or discovered_max):
+        while page <= total_pages:
             response = requests.get(url_base + str(page), headers=self._auth_headers)
 
-            # Update discovered page count from header (only when not capped)
-            if max_pages is None and 'X-Pages' in response.headers:
-                discovered_max = int(response.headers['X-Pages'])
+            if 'X-Pages' in response.headers:
+                total_pages = int(response.headers['X-Pages'])
 
-            current_max = max_pages or discovered_max
-            percent = round((page / current_max) * 100)
+            percent = round((page / total_pages) * 100)
 
             if progress_callback:
-                progress_callback(f"\rFetching page {page} of {current_max} ({percent}% complete)")
+                progress_callback(f"\rFetching page {page} of {total_pages} ({percent}% complete)")
 
             # Check ESI error limits
             errors_left = int(response.headers.get('X-ESI-Error-Limit-Remain', 0))

@@ -15,11 +15,6 @@ class ConfigurationError(Exception):
 
 
 @dataclass(frozen=True)
-class ModeConfig:
-    prompt_config_mode: bool = True
-
-
-@dataclass(frozen=True)
 class ESIConfig:
     structure_id: int = 1035466617946
     region_id: int = 10000003
@@ -61,7 +56,6 @@ class CsvPaths:
 @dataclass(frozen=True)
 class DataPaths:
     type_ids: str = "data/type_ids.csv"
-    type_ids_test: str = "data/type_ids_test.csv"
 
 
 @dataclass(frozen=True)
@@ -73,7 +67,6 @@ class PathsConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    mode: ModeConfig = ModeConfig()
     esi: ESIConfig = ESIConfig()
     logging: LoggingConfig = LoggingConfig()
     rate_limiting: RateLimitConfig = RateLimitConfig()
@@ -139,7 +132,6 @@ def load_config(config_path: str | Path = "config.toml") -> AppConfig:
     project_root = config_file.resolve().parent
 
     # Build nested dataclasses with defaults for missing keys
-    mode = ModeConfig(**raw.get("mode", {}))
     esi = ESIConfig(**raw.get("esi", {}))
     logging_cfg = LoggingConfig(**raw.get("logging", {}))
     rate_limiting = RateLimitConfig(**raw.get("rate_limiting", {}))
@@ -156,7 +148,6 @@ def load_config(config_path: str | Path = "config.toml") -> AppConfig:
     paths = PathsConfig(csv=csv_paths, data=data_paths, output_dir=output_dir)
 
     return AppConfig(
-        mode=mode,
         esi=esi,
         logging=logging_cfg,
         rate_limiting=rate_limiting,
