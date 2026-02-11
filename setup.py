@@ -4,12 +4,15 @@ ESI Market Tool - Interactive Setup
 A beautiful TUI for configuring the ESI Market Tool
 """
 
+import csv
 import os
 import sys
 import tomllib
 import re
 from pathlib import Path
 from typing import Any
+
+import requests
 
 from rich.console import Console
 from rich.panel import Panel
@@ -211,12 +214,13 @@ def main_menu():
             ("1", "EVE API Credentials", "Set up CLIENT_ID and SECRET_KEY for ESI access"),
             ("2", "ESI Settings", "Configure structure ID and region"),
             ("3", "User-Agent", "Identify your app to CCP (recommended)"),
-            ("4", "Rate Limiting", "Adjust request timing to avoid API limits"),
-            ("5", "Google Sheets", "Set up automatic spreadsheet updates"),
-            ("6", "Logging", "Configure console output verbosity"),
-            ("7", "Output Directory", "Set where CSV files are saved"),
-            ("8", "View Current Config", "Display all current settings"),
-            ("9", "Reset to Defaults", "Restore default configuration"),
+            ("4", "Type IDs", "Manage tracked item types"),
+            ("5", "Rate Limiting", "Adjust request timing to avoid API limits"),
+            ("6", "Google Sheets", "Set up automatic spreadsheet updates"),
+            ("7", "Logging", "Configure console output verbosity"),
+            ("8", "Output Directory", "Set where CSV files are saved"),
+            ("9", "View Current Config", "Display all current settings"),
+            ("0", "Reset to Defaults", "Restore default configuration"),
             ("q", "Quit(q)", "Exit setup"),
         ]
 
@@ -239,7 +243,7 @@ def main_menu():
 
         choice = Prompt.ask(
             "[accent]Select an option[/] [hint](q to quit)[/]",
-            choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "q", "Q"],
+            choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "q", "Q"],
             show_choices=False,
         ).lower()
 
@@ -250,16 +254,18 @@ def main_menu():
         elif choice == "3":
             setup_user_agent()
         elif choice == "4":
-            setup_rate_limiting()
+            manage_type_ids()
         elif choice == "5":
-            setup_google_sheets()
+            setup_rate_limiting()
         elif choice == "6":
-            setup_logging()
+            setup_google_sheets()
         elif choice == "7":
-            setup_output_directory()
+            setup_logging()
         elif choice == "8":
-            view_config()
+            setup_output_directory()
         elif choice == "9":
+            view_config()
+        elif choice == "0":
             reset_config()
         elif choice == "q":
             console.print("\n[success]Setup complete![/] Run [highlight]uv run esi_markets.py[/] to start.\n")
@@ -442,6 +448,269 @@ def setup_user_agent():
     console.print(f"\n[hint]User-Agent preview:[/] [value]{header}[/]")
 
     console.print("\n[success]User-Agent settings saved![/]")
+    Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+
+
+# -----------------------------------------------
+# Type ID Management
+# -----------------------------------------------
+
+TYPE_IDS_FILE = Path("data/type_ids.csv")
+
+
+def _load_type_ids() -> list[int]:
+    """Load current type IDs from the CSV file."""
+    if not TYPE_IDS_FILE.exists():
+        return []
+    with open(TYPE_IDS_FILE, newline="") as f:
+        reader = csv.DictReader(f)
+        for col in ("type_ids", "type_id", "typeID"):
+            if col in (reader.fieldnames or []):
+                return [int(row[col]) for row in reader if row[col].strip()]
+    return []
+
+
+def _save_type_ids(ids: list[int]) -> None:
+    """Save type IDs to the CSV file."""
+    TYPE_IDS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(TYPE_IDS_FILE, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["type_ids"])
+        for tid in sorted(set(ids)):
+            writer.writerow([tid])
+
+
+def manage_type_ids():
+    """Manage tracked item type IDs"""
+    while True:
+        clear_screen()
+        print_header()
+
+        current_ids = _load_type_ids()
+        console.print(Panel(
+            "[title]Type ID Management[/]\n\n"
+            f"Currently tracking [value]{len(current_ids)}[/] item types.\n\n"
+            "[hint]Type IDs determine which items the tool fetches\n"
+            "market data for from ESI.[/]",
+            box=ROUNDED,
+            border_style="info",
+        ))
+        console.print()
+
+        sub_items = [
+            ("1", "View Current Type IDs", "Display all tracked items"),
+            ("2", "Search ESI by Name", "Find item type IDs by name"),
+            ("3", "Import from CSV", "Load type IDs from a CSV file"),
+            ("b", "Back", "Return to main menu"),
+        ]
+
+        sub_table = Table(show_header=False, box=ROUNDED, border_style="accent", padding=(0, 1), expand=True)
+        sub_table.add_column("Key", style="menu.number", width=4, justify="center")
+        sub_table.add_column("Option", style="menu.item", width=24)
+        sub_table.add_column("Description", style="menu.desc")
+        for key, option, desc in sub_items:
+            sub_table.add_row(f"[{key}]", option, desc)
+
+        console.print(sub_table)
+        console.print()
+
+        choice = Prompt.ask(
+            "[accent]Select an option[/]",
+            choices=["1", "2", "3", "b", "B"],
+            show_choices=False,
+        ).lower()
+
+        if choice == "1":
+            _view_type_ids()
+        elif choice == "2":
+            _search_esi_names()
+        elif choice == "3":
+            _import_type_ids_csv()
+        elif choice == "b":
+            break
+
+
+def _view_type_ids():
+    """Display current type IDs in a Rich table"""
+    clear_screen()
+    print_header()
+
+    ids = _load_type_ids()
+    if not ids:
+        console.print("[warning]No type IDs found. Import a CSV or search ESI to add items.[/]")
+        Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+        return
+
+    # Fetch names for display
+    console.print("[hint]Fetching item names from ESI...[/]")
+    names = _bulk_resolve_names(ids)
+
+    table = Table(title=f"Tracked Items ({len(ids)})", box=ROUNDED, border_style="accent")
+    table.add_column("Type ID", style="value", justify="right")
+    table.add_column("Name", style="white")
+
+    for tid in sorted(ids):
+        table.add_row(str(tid), names.get(tid, "[hint]Unknown[/]"))
+
+    console.print(table)
+    Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+
+
+def _bulk_resolve_names(type_ids: list[int]) -> dict[int, str]:
+    """Resolve type IDs to names via ESI universe/names endpoint."""
+    if not type_ids:
+        return {}
+    url = "https://esi.evetech.net/latest/universe/names/?datasource=tranquility"
+    try:
+        # ESI limits POST body to 1000 IDs at a time
+        names = {}
+        for i in range(0, len(type_ids), 1000):
+            batch = type_ids[i:i + 1000]
+            resp = requests.post(url, json=batch, headers={"Content-Type": "application/json"})
+            resp.raise_for_status()
+            for item in resp.json():
+                names[item["id"]] = item["name"]
+        return names
+    except Exception as e:
+        console.print(f"[warning]Could not resolve names: {e}[/]")
+        return {}
+
+
+def _search_esi_names():
+    """Search ESI for items by name and optionally add to type_ids.csv"""
+    clear_screen()
+    print_header()
+
+    console.print(Panel(
+        "[title]Search ESI for Items[/]\n\n"
+        "Enter item names to search for. ESI will return matching IDs.\n"
+        "You can then choose which items to add to your tracked list.\n\n"
+        "[hint]Separate multiple names with commas.[/]",
+        box=ROUNDED,
+        border_style="info",
+    ))
+    console.print()
+
+    search_input = Prompt.ask("[key]Item name(s)[/]")
+    if not search_input.strip():
+        return
+
+    names = [n.strip() for n in search_input.split(",") if n.strip()]
+
+    url = "https://esi.evetech.net/latest/universe/ids/?datasource=tranquility&language=en"
+    try:
+        resp = requests.post(url, json=names, headers={"Content-Type": "application/json"})
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        console.print(f"[error]ESI search failed: {e}[/]")
+        Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+        return
+
+    inventory_types = data.get("inventory_types", [])
+    if not inventory_types:
+        console.print("[warning]No matching items found.[/]")
+        Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+        return
+
+    # Display results
+    table = Table(title="Search Results", box=ROUNDED, border_style="accent")
+    table.add_column("#", style="menu.number", justify="right")
+    table.add_column("Type ID", style="value", justify="right")
+    table.add_column("Name", style="white")
+
+    for i, item in enumerate(inventory_types, 1):
+        table.add_row(str(i), str(item["id"]), item["name"])
+
+    console.print(table)
+    console.print()
+
+    if Confirm.ask("[key]Add all found items to tracked type IDs?[/]", default=True):
+        current_ids = _load_type_ids()
+        new_ids = [item["id"] for item in inventory_types]
+        added = [tid for tid in new_ids if tid not in current_ids]
+        merged = current_ids + added
+        _save_type_ids(merged)
+        console.print(f"[success]Added {len(added)} new items ({len(merged)} total tracked).[/]")
+    else:
+        console.print("[info]No items added.[/]")
+
+    Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+
+
+def _import_type_ids_csv():
+    """Import type IDs from an external CSV file"""
+    clear_screen()
+    print_header()
+
+    console.print(Panel(
+        "[title]Import Type IDs from CSV[/]\n\n"
+        "Provide the path to a CSV file containing type IDs.\n"
+        "The file should have a column named one of:\n"
+        "[value]type_ids[/], [value]type_id[/], or [value]typeID[/]\n\n"
+        "[hint]You can choose to merge with or replace existing IDs.[/]",
+        box=ROUNDED,
+        border_style="info",
+    ))
+    console.print()
+
+    file_path = Prompt.ask("[key]CSV file path[/]")
+    path = Path(file_path).expanduser()
+
+    if not path.exists():
+        console.print(f"[error]File not found: {path}[/]")
+        Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+        return
+
+    # Read and validate
+    try:
+        with open(path, newline="") as f:
+            reader = csv.DictReader(f)
+            col_name = None
+            for col in ("type_ids", "type_id", "typeID"):
+                if col in (reader.fieldnames or []):
+                    col_name = col
+                    break
+
+            if not col_name:
+                console.print(f"[error]No recognized column (type_ids/type_id/typeID) in {path.name}[/]")
+                Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+                return
+
+            import_ids = [int(row[col_name]) for row in reader if row[col_name].strip()]
+    except Exception as e:
+        console.print(f"[error]Failed to read CSV: {e}[/]")
+        Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+        return
+
+    console.print(f"[info]Found {len(import_ids)} type IDs in {path.name}[/]")
+    console.print()
+
+    # Preview first 10
+    if import_ids:
+        preview = import_ids[:10]
+        preview_str = ", ".join(str(x) for x in preview)
+        if len(import_ids) > 10:
+            preview_str += f" ... (+{len(import_ids) - 10} more)"
+        console.print(f"[hint]Preview: {preview_str}[/]")
+        console.print()
+
+    current_ids = _load_type_ids()
+    action = Prompt.ask(
+        "[key]Merge with existing or replace?[/]",
+        choices=["merge", "replace"],
+        default="merge",
+    )
+
+    if action == "merge":
+        added = [tid for tid in import_ids if tid not in current_ids]
+        merged = current_ids + added
+        _save_type_ids(merged)
+        console.print(f"[success]Merged: {len(added)} new items added ({len(merged)} total).[/]")
+    else:
+        _save_type_ids(import_ids)
+        console.print(f"[success]Replaced: now tracking {len(import_ids)} items.[/]")
+
     Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
 
 
