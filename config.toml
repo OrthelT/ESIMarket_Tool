@@ -17,8 +17,11 @@ source_url = ""
 verbose_console_logging = true
 
 [rate_limiting]
-market_orders_wait_time = 0.1
-market_history_wait_time = 0.1
+burst_size = 10
+tokens_per_second = 5.0
+max_retries = 5
+retry_delay = 3.0
+retry_backoff_factor = 2.0
 
 [google_sheets]
 enabled = true

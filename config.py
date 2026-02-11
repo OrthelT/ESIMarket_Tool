@@ -57,8 +57,11 @@ class UserAgentConfig:
 
 @dataclass(frozen=True)
 class RateLimitConfig:
-    market_orders_wait_time: float = 0.1
-    market_history_wait_time: float = 0.3
+    burst_size: int = 10
+    tokens_per_second: float = 5.0
+    max_retries: int = 5
+    retry_delay: float = 3.0
+    retry_backoff_factor: float = 2.0
 
 
 @dataclass(frozen=True)

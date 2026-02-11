@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 
 from config import load_config, check_env_file, ConfigurationError
 from esi_client import ESIClient
+from rate_limiter import TokenBucketRateLimiter
 from market_data import filter_orders, aggregate_sell_orders, merge_market_stats
 from export import (
     save_orders_csv, save_history_csv, save_stats_csv, save_jita_csv,
@@ -119,14 +120,18 @@ async def run(args: argparse.Namespace) -> None:
         print("Run interactively first: uv run python esi_markets.py")
         sys.exit(1)
 
-    async with ESIClient(config=config, token=token) as esi:
+    rate_limiter = TokenBucketRateLimiter(
+        burst_size=config.rate_limiting.burst_size,
+        tokens_per_second=config.rate_limiting.tokens_per_second,
+    )
+
+    async with ESIClient(config=config, token=token, rate_limiter=rate_limiter) as esi:
         # 7. Fetch market orders
         start_time = datetime.now()
         logger.info(f"Run started at {start_time}")
 
         orders_result = await esi.fetch_market_orders(
             structure_id=config.esi.structure_id,
-            wait_time=config.rate_limiting.market_orders_wait_time,
             progress_callback=progress_callback,
         )
 
@@ -153,7 +158,6 @@ async def run(args: argparse.Namespace) -> None:
         history_result = await esi.fetch_market_history(
             region_id=config.esi.region_id,
             type_ids=type_ids,
-            wait_time=config.rate_limiting.market_history_wait_time,
             progress_callback=progress_callback,
         )
         historical_df = pd.DataFrame(history_result.data)

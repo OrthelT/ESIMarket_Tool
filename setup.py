@@ -142,9 +142,13 @@ def save_config(config: dict[str, Any]):
     lines.append("")
 
     # Rate limiting section
+    rl = config.get("rate_limiting", {})
     lines.append("[rate_limiting]")
-    lines.append(f"market_orders_wait_time = {config['rate_limiting']['market_orders_wait_time']}")
-    lines.append(f"market_history_wait_time = {config['rate_limiting']['market_history_wait_time']}")
+    lines.append(f"burst_size = {rl.get('burst_size', 10)}")
+    lines.append(f"tokens_per_second = {rl.get('tokens_per_second', 5.0)}")
+    lines.append(f"max_retries = {rl.get('max_retries', 5)}")
+    lines.append(f"retry_delay = {rl.get('retry_delay', 3.0)}")
+    lines.append(f"retry_backoff_factor = {rl.get('retry_backoff_factor', 2.0)}")
     lines.append("")
 
     # Google Sheets section
@@ -723,36 +727,47 @@ def setup_rate_limiting():
 
     console.print(Panel(
         "[title]Rate Limiting[/]\n\n"
-        "Control the delay between ESI API requests to avoid hitting\n"
-        "rate limits and getting temporarily banned.\n\n"
-        "[hint]Market Orders Wait Time:[/]\n"
-        "  Time in seconds between market order page requests.\n"
-        "  Recommended: [value]0.1[/] (10 req/sec, limit is ~150 req/sec)\n\n"
-        "[hint]Market History Wait Time:[/]\n"
-        "  Time in seconds between history requests per item.\n"
-        "  Recommended: [value]0.3[/] (~200 req/min, limit is ~300 req/min)\n\n"
-        "[warning]Lower values = faster but riskier. Higher = slower but safer.[/]",
+        "Controls how fast ESI requests are sent using a token bucket.\n\n"
+        "[hint]Burst Size:[/] Max requests allowed in a quick burst.\n"
+        "[hint]Tokens/Second:[/] Steady-state request rate.\n"
+        "[hint]Max Retries:[/] How many times to retry a failed request.\n"
+        "[hint]Retry Delay:[/] Base delay (seconds) before first retry.\n"
+        "[hint]Backoff Factor:[/] Multiply delay by this on each retry.\n\n"
+        "[info]Example: delay=3, backoff=2 → retries at 3s, 6s, 12s, 24s...[/]",
         box=ROUNDED,
         border_style="info",
     ))
     console.print()
 
-    current_orders = config.get("rate_limiting", {}).get("market_orders_wait_time", 0.1)
-    current_history = config.get("rate_limiting", {}).get("market_history_wait_time", 0.3)
+    rl = config.get("rate_limiting", {})
 
-    orders_wait = FloatPrompt.ask(
-        "[key]Market Orders Wait Time (seconds)[/]",
-        default=current_orders,
+    burst_size = IntPrompt.ask(
+        "[key]Burst Size[/]",
+        default=rl.get("burst_size", 10),
     )
-
-    history_wait = FloatPrompt.ask(
-        "[key]Market History Wait Time (seconds)[/]",
-        default=current_history,
+    tokens_per_second = FloatPrompt.ask(
+        "[key]Tokens per Second[/]",
+        default=rl.get("tokens_per_second", 5.0),
+    )
+    max_retries = IntPrompt.ask(
+        "[key]Max Retries[/]",
+        default=rl.get("max_retries", 5),
+    )
+    retry_delay = FloatPrompt.ask(
+        "[key]Retry Delay (seconds)[/]",
+        default=rl.get("retry_delay", 3.0),
+    )
+    retry_backoff_factor = FloatPrompt.ask(
+        "[key]Retry Backoff Factor[/]",
+        default=rl.get("retry_backoff_factor", 2.0),
     )
 
     config.setdefault("rate_limiting", {})
-    config["rate_limiting"]["market_orders_wait_time"] = orders_wait
-    config["rate_limiting"]["market_history_wait_time"] = history_wait
+    config["rate_limiting"]["burst_size"] = burst_size
+    config["rate_limiting"]["tokens_per_second"] = tokens_per_second
+    config["rate_limiting"]["max_retries"] = max_retries
+    config["rate_limiting"]["retry_delay"] = retry_delay
+    config["rate_limiting"]["retry_backoff_factor"] = retry_backoff_factor
     save_config(config)
 
     console.print("\n[success]Rate limiting settings saved![/]")
@@ -954,17 +969,15 @@ def view_config():
 
     # Rate Limiting
     console.print(Rule("[title]Rate Limiting[/]", style="accent"))
+    rl = config.get("rate_limiting", {})
     rate_table = Table(show_header=False, box=None, padding=(0, 2))
     rate_table.add_column("Key", style="key")
     rate_table.add_column("Value", style="value")
-    rate_table.add_row(
-        "Market Orders Wait",
-        f"{config.get('rate_limiting', {}).get('market_orders_wait_time', 0.1)}s"
-    )
-    rate_table.add_row(
-        "Market History Wait",
-        f"{config.get('rate_limiting', {}).get('market_history_wait_time', 0.3)}s"
-    )
+    rate_table.add_row("Burst Size", str(rl.get("burst_size", 10)))
+    rate_table.add_row("Tokens/Second", str(rl.get("tokens_per_second", 5.0)))
+    rate_table.add_row("Max Retries", str(rl.get("max_retries", 5)))
+    rate_table.add_row("Retry Delay", f"{rl.get('retry_delay', 3.0)}s")
+    rate_table.add_row("Backoff Factor", f"{rl.get('retry_backoff_factor', 2.0)}x")
     console.print(rate_table)
     console.print()
 

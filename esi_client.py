@@ -14,6 +14,7 @@ from typing import Callable
 import aiohttp
 
 from config import AppConfig
+from rate_limiter import TokenBucketRateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +39,13 @@ class ESIClient:
             result = await esi.fetch_market_orders(...)
     """
 
-    MAX_RETRIES = 5
-    RETRY_DELAY = 3  # seconds
-
-    def __init__(self, config: AppConfig, token: dict):
+    def __init__(self, config: AppConfig, token: dict, rate_limiter: TokenBucketRateLimiter | None = None):
         self._config = config
         self._token = token
+        self._rate_limiter = rate_limiter or TokenBucketRateLimiter()
+        self._max_retries = config.rate_limiting.max_retries
+        self._retry_delay = config.rate_limiting.retry_delay
+        self._retry_backoff = config.rate_limiting.retry_backoff_factor
         ua = config.user_agent.format_header()
         self._auth_headers = {
             'Authorization': f'Bearer {token["access_token"]}',
@@ -68,14 +70,12 @@ class ESIClient:
     async def fetch_market_orders(
         self,
         structure_id: int,
-        wait_time: float = 0.1,
         progress_callback: Callable[[str], None] | None = None,
     ) -> FetchResult:
         """Fetch all market orders from a structure.
 
         Args:
             structure_id: The structure to fetch orders from
-            wait_time: Seconds to wait between page requests
             progress_callback: Optional callback for progress messages
 
         Returns:
@@ -92,6 +92,7 @@ class ESIClient:
         logger.info("Fetching market orders...")
 
         while page <= total_pages:
+            await self._rate_limiter.acquire()
             async with self._session.get(url_base + str(page), headers=self._auth_headers) as response:
                 if 'X-Pages' in response.headers:
                     total_pages = int(response.headers['X-Pages'])
@@ -120,11 +121,12 @@ class ESIClient:
                     except Exception:
                         error_msg = f'HTTP {response.status}'
 
-                    logger.error(f"Error on page {page}: {error_msg}. Retry {retries}/{self.MAX_RETRIES}")
+                    logger.error(f"Error on page {page}: {error_msg}. Retry {retries}/{self._max_retries}")
 
-                    if retries < self.MAX_RETRIES:
+                    if retries < self._max_retries:
+                        delay = self._retry_delay * (self._retry_backoff ** retries)
                         retries += 1
-                        await asyncio.sleep(self.RETRY_DELAY)
+                        await asyncio.sleep(delay)
                         continue
                     else:
                         logger.error(f'Max retries reached for page {page}. Giving up.')
@@ -148,7 +150,6 @@ class ESIClient:
             result.data.extend(orders)
             result.pages_fetched += 1
             page += 1
-            await asyncio.sleep(wait_time)
 
         result.elapsed_seconds = (datetime.now() - start).total_seconds()
 
@@ -162,7 +163,6 @@ class ESIClient:
         self,
         region_id: int,
         type_ids: list[int],
-        wait_time: float = 0.3,
         progress_callback: Callable[[str], None] | None = None,
     ) -> FetchResult:
         """Fetch market history for a list of type IDs.
@@ -170,7 +170,6 @@ class ESIClient:
         Args:
             region_id: The region to fetch history from
             type_ids: List of item type IDs to fetch history for
-            wait_time: Seconds to wait between requests
             progress_callback: Optional callback for progress messages
 
         Returns:
@@ -182,14 +181,12 @@ class ESIClient:
 
         item_count = len(type_ids)
         logger.info(f"Fetching market history for {item_count} items...")
-        est_minutes = round(item_count * 0.54 / 60)
 
         if progress_callback:
-            progress_callback(f"Querying ESI history for {item_count} items. ~{est_minutes} min estimated.")
+            progress_callback(f"Querying ESI history for {item_count} items.")
 
         result = FetchResult()
         retries = 0
-        average_duration = None
         items_processed = 0
 
         for item in type_ids:
@@ -204,7 +201,7 @@ class ESIClient:
 
             while page <= max_pages:
                 try:
-                    req_start = datetime.now()
+                    await self._rate_limiter.acquire()
                     async with self._session.get(
                         url_base + str(item),
                         headers=self._public_headers,
@@ -234,27 +231,17 @@ class ESIClient:
                                 logger.error(f"Error limit nearly reached. Sleeping {sleep_time}s.")
                                 await asyncio.sleep(sleep_time)
                                 continue
-                            elif retries < self.MAX_RETRIES:
+                            elif retries < self._max_retries:
+                                delay = self._retry_delay * (self._retry_backoff ** retries)
                                 retries += 1
-                                await asyncio.sleep(self.RETRY_DELAY)
+                                await asyncio.sleep(delay)
                                 continue
                             else:
-                                logger.error(f"Failed type_id {item} after {self.MAX_RETRIES} attempts")
+                                logger.error(f"Failed type_id {item} after {self._max_retries} attempts")
                                 result.failed_items.append(item)
                                 break
 
                         data = await response.json(content_type=None)
-                        req_duration = datetime.now() - req_start
-
-                    # Track request rate
-                    if average_duration is not None:
-                        average_duration = (average_duration * (items_processed - 1) + req_duration) / items_processed
-                        rpm = 60 / average_duration.total_seconds() if average_duration.total_seconds() > 0 else 0
-                        if rpm > 290:
-                            logger.warning(f"Rate limit approaching ({rpm:.0f} req/min). Sleeping 10s.")
-                            await asyncio.sleep(10)
-                    else:
-                        average_duration = req_duration
 
                     if data:
                         for entry in data:
@@ -267,16 +254,16 @@ class ESIClient:
                     retries = 0
                     result.pages_fetched += 1
                     page += 1
-                    await asyncio.sleep(wait_time)
 
                 except asyncio.TimeoutError:
                     logger.error(f"Timeout for type_id {item}")
-                    if retries < self.MAX_RETRIES:
+                    if retries < self._max_retries:
+                        delay = self._retry_delay * (self._retry_backoff ** retries)
                         retries += 1
-                        await asyncio.sleep(self.RETRY_DELAY)
+                        await asyncio.sleep(delay)
                         continue
                     else:
-                        logger.error(f"Failed type_id {item} after {self.MAX_RETRIES} timeout retries")
+                        logger.error(f"Failed type_id {item} after {self._max_retries} timeout retries")
                         result.failed_items.append(item)
                         break
 
