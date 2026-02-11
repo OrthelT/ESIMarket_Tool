@@ -1,0 +1,276 @@
+"""
+CLI entry point and main orchestration for ESI Market Tool.
+
+Supports interactive mode (default), --headless for scheduled execution,
+and --mode test|standard to skip the interactive prompt.
+"""
+
+import argparse
+import os
+import sys
+import logging
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+from dotenv import load_dotenv
+
+from config import load_config, check_env_file, ConfigurationError, AppConfig
+from esi_client import ESIClient
+from market_data import filter_orders, aggregate_sell_orders, merge_market_stats
+from export import (
+    save_orders_csv, save_history_csv, save_stats_csv, save_jita_csv,
+    update_all_google_sheets,
+)
+from get_jita_prices import get_jita_prices
+from file_cleanup import rename_move_and_archive_csv
+from logging_utils import setup_logging
+
+logger: logging.Logger | None = None
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Flag resolution order:
+      1. --headless → forces prompt_config_mode=False, mode=standard, csv_save=True
+      2. --mode test|standard → skips interactive mode prompt
+      3. No flags → uses config.toml prompt_config_mode setting
+    """
+    parser = argparse.ArgumentParser(
+        prog='mktstatus',
+        description='ESI Structure Market Tools for Eve Online',
+    )
+    parser.add_argument(
+        '--headless',
+        action='store_true',
+        help='Run without prompts (standard mode, CSV output, no interactive input)',
+    )
+    parser.add_argument(
+        '--mode',
+        choices=['test', 'standard'],
+        default=None,
+        help='Run mode: test (3 pages) or standard (all pages)',
+    )
+    parser.add_argument(
+        '--output-dir',
+        type=Path,
+        default=None,
+        help='Override output directory (default: output/)',
+    )
+    parser.add_argument(
+        '--no-sheets',
+        action='store_true',
+        help='Skip Google Sheets update even if enabled in config',
+    )
+    return parser.parse_args(argv)
+
+
+def _interactive_mode_selection(config: AppConfig) -> tuple[bool, bool]:
+    """Interactive mode selection (original configuration_mode + debug_mode logic).
+
+    Returns:
+        (test_mode, csv_save_mode)
+    """
+    config_choice = input("run in configuration mode? (y/n):")
+    if config_choice == 'y':
+        test_choice = input("run in testing mode? This will use abbreviated ESI calls for quick debugging (y/n):")
+        if test_choice == 'y':
+            test_mode = True
+            csv_input = input("save output to CSV? (y/n):")
+            csv_save_mode = csv_input == 'y'
+        else:
+            test_mode = False
+            csv_save_mode = True
+
+        print(f"""CONFIGURATION SETTINGS
+              -----------------------------------------------
+              prompt_config_mode: {config.mode.prompt_config_mode}
+              structure_id: {config.esi.structure_id}
+              region_id: {config.esi.region_id}
+              verbose_console_logging: {config.logging.verbose_console_logging}
+              market_orders_wait_time: {config.rate_limiting.market_orders_wait_time}
+              market_history_wait_time: {config.rate_limiting.market_history_wait_time}
+              update_google_sheets: {config.google_sheets.enabled}
+
+              These settings will be used for the next run, and can be changed in the code directly.
+              -----------------------------------------------
+              """)
+        input("Press Enter to continue or Ctrl+C to exit...")
+        return test_mode, csv_save_mode
+    else:
+        return False, True
+
+
+def _print_progress(msg: str) -> None:
+    """Default progress callback — prints to stdout."""
+    print(msg, end="" if msg.startswith("\r") else "\n")
+
+
+def run(args: argparse.Namespace) -> None:
+    """Main orchestration: load config, authenticate, fetch, process, export."""
+    global logger
+
+    # 1. Load config
+    try:
+        config = load_config()
+        check_env_file(config.project_root)
+    except ConfigurationError as e:
+        print(f"\nError: {e}")
+        sys.exit(1)
+
+    # 2. Setup logging
+    logger = setup_logging(
+        log_name='market_structures',
+        verbose_console_logging=config.logging.verbose_console_logging,
+    )
+
+    print("=" * 80)
+    print("ESI Structure Market Tools for Eve Online")
+    print("=" * 80)
+
+    # 3. Load credentials
+    os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+    load_dotenv(dotenv_path=config.project_root / '.env')
+    client_id = os.getenv('CLIENT_ID')
+    secret_key = os.getenv('SECRET_KEY')
+
+    # 4. Determine mode
+    if args.headless:
+        test_mode = False
+        csv_save_mode = True
+        progress_callback = _print_progress
+    elif args.mode:
+        test_mode = args.mode == 'test'
+        csv_save_mode = True
+        progress_callback = _print_progress
+    elif config.mode.prompt_config_mode:
+        test_mode, csv_save_mode = _interactive_mode_selection(config)
+        progress_callback = _print_progress
+    else:
+        test_mode = False
+        csv_save_mode = True
+        progress_callback = _print_progress
+
+    # 5. Output directory
+    output_dir = args.output_dir or Path('output')
+    latest_dir = output_dir / 'latest'
+    latest_dir.mkdir(parents=True, exist_ok=True)
+
+    # 6. Authenticate
+    SCOPE = ['esi-markets.structure_markets.v1']
+    from ESI_OAUTH_FLOW import get_token
+    token = get_token(client_id=client_id, secret_key=secret_key, requested_scope=SCOPE)
+    esi = ESIClient(config=config, token=token)
+
+    # 7. Fetch market orders
+    start_time = datetime.now()
+    logger.info(f"Run started at {start_time}")
+
+    if test_mode:
+        logger.info("Test mode selected")
+        idslocation = config.paths.data.type_ids_test
+        orders_result = esi.fetch_market_orders(
+            structure_id=config.esi.structure_id,
+            max_pages=3,
+            wait_time=config.rate_limiting.market_orders_wait_time,
+            progress_callback=progress_callback,
+        )
+    else:
+        logger.info("Standard mode selected")
+        idslocation = config.paths.data.type_ids
+        orders_result = esi.fetch_market_orders(
+            structure_id=config.esi.structure_id,
+            max_pages=None,
+            wait_time=config.rate_limiting.market_orders_wait_time,
+            progress_callback=progress_callback,
+        )
+
+    market_orders = orders_result.data
+    mkt_time = orders_result.elapsed_seconds
+    avg_time = (mkt_time * 1000 / len(market_orders)) if market_orders else 0
+    logger.info(f"Market orders: {mkt_time:.2f}s, avg: {avg_time:.2f}ms")
+
+    # 8. Read type IDs
+    type_ids_df = pd.read_csv(idslocation)
+    for col in ('type_ids', 'type_id', 'typeID'):
+        if col in type_ids_df.columns:
+            type_ids = type_ids_df[col].tolist()
+            break
+    else:
+        logger.error(f"No recognized type_id column in {idslocation}")
+        sys.exit(1)
+
+    # 9. Fetch market history
+    print("-" * 80)
+    print(f"Querying ESI history for {len(type_ids)} items.")
+    print("-" * 80)
+    history_result = esi.fetch_market_history(
+        region_id=config.esi.region_id,
+        type_ids=type_ids,
+        wait_time=config.rate_limiting.market_history_wait_time,
+        progress_callback=progress_callback,
+    )
+    historical_df = pd.DataFrame(history_result.data)
+    hist_time = history_result.elapsed_seconds
+
+    print("\n")
+    print("=" * 80)
+    print("Market History Complete")
+    print("=" * 80)
+
+    # 10. Process data
+    orders_df = pd.DataFrame(market_orders)
+    filtered = filter_orders(type_ids, orders_df)
+    sell_agg = aggregate_sell_orders(filtered)
+    sde_names = ESIClient.fetch_sde_names(sell_agg['type_id'].unique().tolist())
+    final_data = merge_market_stats(sell_agg, historical_df, sde_names)
+    with_jita = get_jita_prices(final_data)
+
+    # 11. Save files
+    if csv_save_mode:
+        logger.info("Saving CSV files...")
+        save_orders_csv(market_orders, output_dir)
+        save_history_csv(historical_df, output_dir)
+        save_stats_csv(final_data, output_dir)
+
+        # File cleanup: copy latest, archive old files
+        src_folder = str(output_dir)
+        latest_folder = str(latest_dir)
+        archive_folder = str(output_dir / 'archive')
+        rename_move_and_archive_csv(src_folder, latest_folder, archive_folder, "archive")
+
+        save_jita_csv(with_jita, latest_dir)
+
+        # 12. Google Sheets
+        update_sheets = config.google_sheets.enabled and not args.no_sheets
+        if update_sheets:
+            try:
+                logger.info("Updating Google Sheets...")
+                update_all_google_sheets(config)
+                logger.info("Google Sheets update completed successfully")
+            except Exception as e:
+                logger.error(f"Failed to update Google Sheets: {e}")
+                print("Google Sheets update failed. Run 'uv run python setup.py' to configure.")
+
+    # 13. Summary
+    total_time = (datetime.now() - start_time).total_seconds()
+
+    print("=" * 80)
+    print("ESI Request Completed Successfully.")
+    print(f"Data for {len(final_data)} items retrieved.")
+    if config.google_sheets.enabled and not args.no_sheets:
+        print("Google Sheets update was enabled for this run.")
+    print("-" * 80)
+
+    logger.info(f"MARKET ORDERS: {mkt_time:.2f}s | HISTORY: {hist_time:.2f}s | TOTAL: {total_time:.2f}s")
+
+
+def main(argv: list[str] | None = None) -> None:
+    """CLI entry point."""
+    args = parse_args(argv)
+    run(args)
+
+
+if __name__ == '__main__':
+    main()
