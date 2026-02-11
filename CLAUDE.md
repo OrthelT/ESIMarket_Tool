@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Refactoring Status
+
+The codebase was refactored from a monolithic `esi_markets.py` into focused modules on the `refactor-architecture` branch. See **`docs/refactoring_log.md`** for detailed progress, commit history, decisions made, and handoff notes for the next Claude instance. See **`docs/CODE_REVIEW.md`** for the original review that motivated the refactoring.
+
 ## Project Overview
 
 ESI Structure Market Tools is a Python application for retrieving and analyzing Eve Online player-owned market data via the ESI (EVE Swagger Interface) API. The tool authenticates via OAuth2, fetches market orders and historical data from structures, compares prices with Jita (main trade hub), and optionally exports results to Google Sheets.
@@ -38,10 +42,26 @@ Features:
 When configuration is missing or invalid, running `esi_markets.py` will display a helpful message suggesting to run the setup wizard.
 
 ### Running the Application
-The main entry point is `esi_markets.py`. On first run, it will:
+The main entry point is `esi_markets.py` (delegates to `cli.py`):
+
+```bash
+# Interactive mode (default)
+uv run python esi_markets.py
+
+# Headless mode for cron/scheduled runs
+uv run python esi_markets.py --headless
+
+# Test mode (3 pages only)
+uv run python esi_markets.py --mode test
+
+# Full automation: headless, no Google Sheets, custom output dir
+uv run python esi_markets.py --headless --no-sheets --output-dir ~/market-data
+```
+
+On first run, it will:
 1. Check for valid configuration (suggests setup if missing)
-2. Prompt for configuration mode (test vs standard)
-3. Open browser for Eve SSO authentication
+2. Prompt for configuration mode (test vs standard) — or use CLI flags
+3. Open browser for Eve SSO authentication (auto-captured via callback server)
 4. Fetch market data from configured structure
 5. Save results to CSV files in `output/` directory
 
@@ -54,44 +74,57 @@ Use test mode for quick verification:
 ## Architecture Overview
 
 ### Core Data Flow
-1. **Authentication** (`ESI_OAUTH_FLOW.py`): OAuth2 flow with Eve SSO, manages token refresh
-2. **Market Orders** (`esi_markets.py`): Paginated fetch from ESI structures endpoint
-3. **Market History** (`esi_markets.py`): 30-day historical data per item type
-4. **Jita Prices** (`get_jita_prices.py`): Current Jita prices via Fuzzworks API for comparison
-5. **Data Processing**: Aggregates sell orders, calculates statistics, merges datasets
-6. **Export**: CSV files + optional Google Sheets update (`googlesheets_updater.py`)
-7. **Cleanup** (`file_cleanup.py`): Archives old files, maintains latest/ folder
+1. **Configuration** (`config.py`): Frozen dataclasses loaded from `config.toml`
+2. **Authentication** (`ESI_OAUTH_FLOW.py`): OAuth2 flow with HTTP callback server
+3. **Market Orders** (`esi_client.py`): Paginated fetch from ESI structures endpoint
+4. **Market History** (`esi_client.py`): 30-day historical data per item type
+5. **Jita Prices** (`get_jita_prices.py`): Current Jita prices via Fuzzworks API
+6. **Data Processing** (`market_data.py`): Aggregates sell orders, statistics, merges datasets
+7. **Export** (`export.py`): CSV files + optional Google Sheets update
+8. **Cleanup** (`file_cleanup.py`): Archives old files, maintains latest/ folder
 
 ### Key Modules
 
-**esi_markets.py** - Main orchestrator
+**cli.py** - CLI and main orchestration
+- argparse CLI with `--headless`, `--mode test|standard`, `--output-dir`, `--no-sheets`
 - Coordinates entire data pipeline
-- Two fetch modes: `fetch_market_orders_test_mode()` and `fetch_market_orders_standard_mode()`
-- Error handling with retry logic (max 5 retries)
-- ESI rate limit monitoring via response headers (`X-ESI-Error-Limit-Remain`)
-- Configurable wait times between requests to avoid rate limits
+- Supports scheduled/headless execution via cron (see `docs/SCHEDULING.md`)
+
+**config.py** - Configuration management
+- Frozen dataclasses mirroring `config.toml` structure (`AppConfig`, `ESIConfig`, etc.)
+- `load_config()` factory with defaults for missing keys
+- `resolve_path()` for cross-platform path handling (`~`, relative, absolute)
+
+**esi_client.py** - ESI HTTP client
+- `ESIClient` class with `fetch_market_orders()` and `fetch_market_history()`
+- Single fetch method with `max_pages` parameter (3 for test, None for standard)
+- `progress_callback` for silent headless operation
+- `fetch_sde_names()` static method with error handling
 
 **ESI_OAUTH_FLOW.py** - Authentication handler
-- Manages OAuth2 flow with Eve Online SSO
-- Stores/refreshes tokens in `token.json`
-- Required scope: `esi-markets.structure_markets.v1`
-- Uses localhost callback (`http://localhost:8000/callback`)
+- OAuth2 flow with Eve Online SSO
+- HTTP callback server auto-captures redirect (no more "connection refused")
+- `get_token(client_id, secret_key, scope, headless=False)` — dependency injection
+- Falls back to manual URL paste if server fails
+
+**market_data.py** - Pure data processing
+- No I/O, no globals, no network — just DataFrame transformations
+- `filter_orders()`, `aggregate_sell_orders()`, `compute_history_stats()`, `merge_market_stats()`
+
+**export.py** - File I/O and Google Sheets
+- CSV writing: `save_orders_csv()`, `save_history_csv()`, `save_stats_csv()`, `save_jita_csv()`
+- `update_all_google_sheets(config)` with single `_update_worksheet()` helper
+
+**esi_markets.py** - Thin entry point
+- Delegates to `cli.main()` — preserves `pyproject.toml` entry point
 
 **get_jita_prices.py** - Price comparison
 - Fetches Jita market prices from Fuzzworks aggregates API
-- Merges with structure data for price comparison
 - Region ID 10000002 hardcoded for Jita
 
-**googlesheets_updater.py** - Google Sheets integration
-- Updates three worksheets: `market_stats`, `jita_prices`, `market_history`
-- Requires Google service account credentials JSON file
-- Updates from files in `output/latest/`
-
 **file_cleanup.py** - File management
-- Renames latest files to consistent names in `output/latest/`
-- Archives older files to `output/archive/`
-- Removes files older than 30 days from archive
-- Preserves market history files indefinitely
+- Uses pathlib throughout
+- No blocking `input()` calls (headless-safe)
 
 ### Configuration
 
