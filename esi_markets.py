@@ -1,15 +1,14 @@
 import os
 import sys
-import requests
-import time
 import csv
 import logging
 
 import pandas as pd
-from requests import ReadTimeout
 from datetime import datetime
+from dotenv import load_dotenv
 
 from config import load_config, check_env_file, ConfigurationError, AppConfig
+from esi_client import ESIClient
 
 # LICENSE
 # This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -67,212 +66,8 @@ def debug_mode():
     return test_mode, csv_save_mode
 
 
-#===============================================
-# Functions: Fetch Market Structure Orders
-#-----------------------------------------------
-def fetch_market_orders_test_mode(test_mode, token, market_structure_url, market_orders_wait_time):
-    if test_mode:
-        print("test mode enabled")
-
-    logger.info("Starting market order fetch in test mode...")
-    logger.info("Authorizing ESI scope...")
-    logger.info("ESI scope authorized. Requesting data...")
-
-    headers = {
-        'Authorization': f'Bearer {token["access_token"]}',
-        'Content-Type': 'application/json',
-    }
-
-    page = 1
-    max_pages = 3
-    retries: int = 0
-    total_retries: int = 0
-    error_count: int = 0
-    total_pages = 0
-
-    all_orders = []
-
-    logger.info(f"Test mode enabled. Limiting to {max_pages} pages.\n")
-
-    while page <= max_pages:
-        response = requests.get(market_structure_url + str(page), headers=headers)
-
-        errorsleft = int(response.headers.get('X-ESI-Error-Limit-Remain', 0))
-        errorreset = int(response.headers.get('X-ESI-Error-Limit-Reset', 0))
-
-        if errorsleft == 0:
-            break
-        elif errorsleft < 10:
-            logger.warning(f'WARNING: Errors remaining: {errorsleft}. Error limit reset: {errorreset} seconds.\n')
-
-        if response.status_code != 200:
-            error_code = response.status_code
-            error_info = response.json()
-            error = error_info['error']
-            error_count += 1
-
-            logger.error(f"Error fetching data from page {page}. status code: {error_code} ({error}. retries: {retries} Retrying in 3 seconds...\n")
-
-            if retries < 5:
-                retries += 1
-                time.sleep(3)
-                continue
-            else:
-                logger.error(f'Reached the 5th retry and giving up on page {page}\n')
-                print(f"""Page {page} failed 5 times. Giving up.
-                Errors: {error_count}
-                Retries: {total_retries}
-                Errors left: {errorsleft}
-                Time until error reset: {errorreset}
-                """)
-                input("Press Enter to continue or Ctrl+C to exit...")
-                break
-
-        total_retries += retries
-        retries = 0
-
-        try:
-            orders = response.json()
-        except ValueError:
-            logger.error(f"Error decoding JSON response from page {page}.\n")
-            continue
-
-        if not orders:
-            logger.error(f"No orders remaining on page {page}.\n")
-            break
-
-        all_orders.extend(orders)
-
-        logger.info(f"Orders fetched from page {page}/{max_pages}")
-
-        total_pages += 1
-        page += 1
-
-        print(f"\rNow fetching page {page} of {max_pages}...", end="")
-        time.sleep(market_orders_wait_time)
-
-    print(f"""
-          -----------------------------------------------
-          Market Orders complete.
-          Fetched {total_pages} pages.
-          Total orders: {len(all_orders)}
-          Received {error_count} errors.
-          {total_retries} total retries.
-          -----------------------------------------------
-          """)
-    logger.info("-----------------------------------------------")
-    logger.info("Market Orders complete.")
-    logger.info(f"Fetched {total_pages} pages. Total orders: {len(all_orders)}")
-    logger.info(f"Received {error_count} errors. {total_retries} total retries.")
-    logger.info("-----------------------------------------------")
-    logger.info("Returning all orders....")
-    return all_orders
-
-def fetch_market_orders_standard_mode(token, market_structure_url, market_orders_wait_time):
-    logger.info("Starting market order fetch in standard mode...")
-    logger.info("-----------------------------------------")
-    logger.info('ESI Scope Authorized. Requesting data.')
-    logger.info('-----------------------------------------')
-
-    headers = {
-        'Authorization': f'Bearer {token["access_token"]}',
-        'Content-Type': 'application/json',
-    }
-
-    page = 1
-    max_pages = 1
-    retries = 0
-    total_retries = 0
-    error_count = 0
-    total_pages = 0
-    all_orders = []
-
-    logger.info("fetching market orders...")
-
-    while page <= max_pages:
-        logger.debug(f"Fetching page {page}...")
-
-        response = requests.get(market_structure_url + str(page), headers=headers)
-        logger.debug(f"page: {page}, response: {response.status_code}")
-        if 'X-Pages' in response.headers:
-            max_pages = int(response.headers['X-Pages'])
-        elif response.status_code == 200:
-            max_pages = 1
-
-        percent_complete = round((page / max_pages) * 100)
-        print(f"\rFetching page {page} of {max_pages} ({percent_complete}% complete)", end="")
-
-        errorsleft = int(response.headers.get('X-ESI-Error-Limit-Remain', 0))
-        errorreset = int(response.headers.get('X-ESI-Error-Limit-Reset', 0))
-        if errorsleft > 0:
-            logger.debug(f"Errors remaining: {errorsleft}. Error limit reset: {errorreset} seconds.\n")
-        if errorsleft == 0:
-            logger.error("Error limit reached. Stopping requests.\n")
-            break
-        elif errorsleft < 10:
-            logger.warning(f'Low error limit remaining: {errorsleft}. Reset in {errorreset} seconds.\n')
-
-        if response.status_code != 200:
-            error_code = response.status_code
-            error_details = response.json()
-            error = error_details['error']
-            error_count += 1
-
-            logger.error(f"Error fetching data from page {page}. Status code: {error_code} ({error}). Retries: {retries}\n")
-
-            if retries < 5:
-                retries += 1
-                logger.info(f"Retrying page {page}. Attempt {retries}/5\n")
-                time.sleep(3)
-                continue
-            else:
-                logger.error(f'Reached maximum retries for page {page}. Giving up.\n')
-                print(f"""
-                Page {page} failed after 5 attempts.
-                Errors: {error_count}
-                Retries: {total_retries}
-                Errors left: {errorsleft}
-                Time until error reset: {errorreset}
-                """)
-                input("Press Enter to continue or Ctrl+C to exit...")
-                break
-
-        total_retries += retries
-        retries = 0
-
-        try:
-            orders = response.json()
-        except ValueError:
-            logger.error(f"Failed to decode JSON response from page {page}\n")
-            error_count += 1
-            continue
-
-
-        if not orders:
-            logger.info(f"No orders found on page {page}\n")
-            break
-
-        all_orders.extend(orders)
-
-        total_pages += 1
-        page += 1
-        time.sleep(market_orders_wait_time)
-
-    logger.info(f"Retrieved {len(orders)} orders from page {page}/{max_pages}. Total orders: {len(all_orders)}")
-
-
-    logger.info("-----------------------------------------------")
-    logger.info("Market Orders Complete")
-    logger.info(f"Pages fetched: {total_pages}")
-    logger.info(f"Total orders: {len(all_orders)}")
-    logger.info(f"Errors: {error_count}")
-    logger.info(f"Total retries: {total_retries}")
-    logger.info("-----------------------------------------------")
-
-    return all_orders
-
-# Save the CSV files
 def save_to_csv(orders, filename):
+    """Save raw market orders to CSV."""
     fields = ['type_id', 'order_id', 'price', 'volume_remain', 'volume_total', 'is_buy_order', 'issued', 'range']
     os.makedirs('output', exist_ok=True)
 
@@ -292,146 +87,6 @@ def save_to_csv(orders, filename):
             })
     logger.info(f"Market orders saved to {filename}")
 
-
-# update market history
-def fetch_market_history(type_id_list: list[int], region_id: int, market_history_wait_time: float) -> list[dict[str, int | str | float]]:
-    start_time = datetime.now()
-    item_count = len(type_id_list)
-    logger.info(f"Fetching market history...for {item_count} items")
-    logger.info("-"*80)
-    estimated_time_seconds = item_count * .54
-    estimated_time_minutes = round(estimated_time_seconds / 60)
-    print("-"*80)
-    print(f"Querying ESI history for {item_count} items. Estimated time to complete: {estimated_time_minutes} minutes")
-    print("-"*80)
-
-    timeout = 10
-
-    all_history = []
-    page = 1
-    max_pages = 1
-    error_count = 0
-    retries = 0
-    total_retries = 0
-    successful_returns = 0
-    failed_items = []
-    items_processed = 0
-
-    market_history_url = f'https://esi.evetech.net/latest/markets/{region_id}/history/?datasource=tranquility&type_id='
-
-    for type_id in range(len(type_id_list)):
-        item = type_id_list[type_id]
-        items_processed += 1
-        percent_complete = round((items_processed / len(type_id_list)) * 100)
-
-        print(f"\rFetching history for item {items_processed} of {len(type_id_list)}.  {percent_complete}% complete", end="")
-
-        while page <= max_pages:
-
-            headers = {'accept': 'application/json'}
-
-            try:
-                request_start_time = datetime.now()
-                response = requests.get(market_history_url + str(item), headers=headers, timeout=timeout)
-                code = response.status_code
-                logger.debug(f"type_id: {item}, status code: {code}")
-
-                error_limit_remain = response.headers.get('X-ESI-Error-Limit-Remain')
-                error_limit_reset = response.headers.get('X-ESI-Error-Limit-Reset')
-
-                if 'X-Pages' in response.headers:
-                    max_pages = int(response.headers['X-Pages'])
-                else:
-                    max_pages = 1
-
-                if code != 200:
-                    error_count += 1
-                    error_details = response.json()
-                    error = error_details['error']
-                    logger.error(f"\nError fetching type_id {item}: Status {response.status_code} ({error})")
-                    logger.error(f"Error limit remaining: {error_limit_remain}")
-                    if error_limit_remain < 2:
-                        logger.error(f"Error limit nearly reached. Stopping requests for {error_limit_reset} seconds to allow reset.\n")
-                        time.sleep(error_limit_reset)
-                        continue
-                    elif retries < 5:
-                        retries += 1
-                        logger.info(f"\nRetrying type_id {item}. Attempt {retries}/5\n")
-                        time.sleep(3)
-                        continue
-                    else:
-                        logger.error(f"\nFailed to fetch type_id {item} after 5 attempts\n")
-                        failed_items.append(item)
-                        input("Press Enter to continue or Ctrl+C to exit...")
-
-                data = response.json()
-                request_duration = datetime.now() - request_start_time
-
-                if items_processed > 1:
-                    average_request_duration = (average_request_duration * (items_processed - 1) + request_duration) / items_processed
-
-                    logger.debug(f"Request for type_id {item} took {request_duration} seconds")
-                    logger.debug(f"Average request duration: {average_request_duration} seconds")
-                    requests_per_minute = 60 / average_request_duration.total_seconds()
-                    logger.debug(f"Requests per minute: {requests_per_minute}")
-                    if requests_per_minute > 290:
-                        logger.warning(f"Requests per minute limit nearly reached. Current requests per minute: {requests_per_minute}")
-                        logger.warning("Sleeping for 10 seconds to avoid exceeding rate limit")
-                        time.sleep(10)
-                else:
-                    average_request_duration = request_duration
-
-                if data:
-                    for entry in data:
-                        entry['type_id'] = item
-                    all_history.extend(data)
-                    logger.debug(f"\nRetrieved {len(data)} history records for item {item}\n")
-                else:
-                    logger.warning(f"\nNo history data found for type_id {item}\n")
-
-                retries = 0
-                successful_returns += 1
-                page += 1
-                time.sleep(market_history_wait_time)
-
-            except ReadTimeout:
-                logger.error(f"\nRequest timeout for type_id {item}\n")
-                if retries < 5:
-                    retries += 1
-                    logger.info(f"\nRetrying after timeout. Attempt {retries}/5\n")
-                    time.sleep(3)
-                    continue
-                else:
-                    logger.error(f"\nFailed to fetch type_id {item} after 5 timeout retries\n")
-                    failed_items.append(item)
-                    break
-
-        total_retries += retries
-        retries = 0
-        page = 1
-        max_pages = 1
-
-    finish_time = datetime.now()
-    total_time = finish_time - start_time
-
-    print("\n"*2)
-    print("="*80)
-    print("Market History Complete")
-    print("="*80)
-    print("\n"*2)
-
-    logger.info("-----------------------------------------------")
-    logger.info("Market History Complete")
-    logger.info(f"Items processed: {successful_returns}/{len(type_id_list)}")
-    logger.info(f"Total history records: {len(all_history)}")
-    logger.info(f"Errors: {error_count}")
-    logger.info(f"Total retries: {total_retries}")
-    logger.info(f"Total time: {total_time}")
-    if failed_items:
-        logger.warning(f"Failed items: {failed_items}")
-    logger.info("-----------------------------------------------")
-
-    return all_history
 
 # ===============================================
 # Functions: Process Market Stats
@@ -458,12 +113,23 @@ def aggregate_sell_orders(orders_data):
 
     return merged_df
 
-def merge_market_stats(merged_orders, history_data):
+def merge_market_stats(merged_orders, history_data, sde_names: dict[int, str]):
+    """Merge sell orders with history data and SDE names.
+
+    Args:
+        merged_orders: Aggregated sell order data
+        history_data: Historical market data DataFrame
+        sde_names: Dict mapping type_id -> type_name from ESIClient.fetch_sde_names()
+    """
     grouped_historical_df = history_merge(history_data)
     merged_data = pd.merge(merged_orders, grouped_historical_df, on='type_id', how='left')
 
-    name_data = insert_SDE_data(merged_data)
-    final_df = pd.merge(merged_data, name_data, on='type_id', how='left')
+    # Apply SDE names
+    name_df = pd.DataFrame([
+        {'type_id': tid, 'type_name': name}
+        for tid, name in sde_names.items()
+    ])
+    final_df = pd.merge(merged_data, name_df, on='type_id', how='left')
     final_df = final_df[['type_id', 'type_name', 'total_volume_remain', 'price_5th_percentile', 'min_price',
        'avg_of_avg_price', 'avg_daily_volume']]
     logger.info("market orders and history data merged")
@@ -483,25 +149,6 @@ def history_merge(history_data):
     logger.info("history data merged")
     return grouped_historical_df
 
-def insert_SDE_data(df: pd.DataFrame) -> pd.DataFrame:
-    logger.info("querying SDE data")
-    base_url = 'https://esi.evetech.net/latest/universe/names/?datasource=tranquility'
-    headers = {
-        'Content-Type': 'application/json',
-    }
-
-    ids = df['type_id'].unique().tolist()
-    ids = str(ids)
-
-    data = requests.post(base_url, headers=headers, data=ids)
-    resp = data.json()
-    df = pd.DataFrame(resp)
-
-    df = df[['id','name']]
-    new_cols = {'id': 'type_id','name': 'type_name'}
-    df.rename(columns=new_cols, inplace=True)
-    logger.info("SDE data query complete")
-    return df
 
 def main():
     """Main entry point for the ESI Market Tool"""
@@ -515,8 +162,6 @@ def main():
         print(f"\nError: {e}")
         sys.exit(1)
 
-    # Imports that depend on config being loaded (no more module-level side effects)
-    from ESI_OAUTH_FLOW import get_token
     from file_cleanup import rename_move_and_archive_csv
     from get_jita_prices import get_jita_prices
     from googlesheets_updater import update_all_google_sheets
@@ -526,16 +171,14 @@ def main():
     print("ESI Structure Market Tools for Eve Online")
     print("=" * 80)
 
+    # Load credentials
     os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+    load_dotenv(dotenv_path=_config.project_root / '.env')
+    client_id = os.getenv('CLIENT_ID')
+    secret_key = os.getenv('SECRET_KEY')
 
     logger = setup_logging(log_name='market_structures', verbose_console_logging=_config.logging.verbose_console_logging)
 
-    structure_id = _config.esi.structure_id
-    region_id = _config.esi.region_id
-    market_orders_wait_time = _config.rate_limiting.market_orders_wait_time
-    market_history_wait_time = _config.rate_limiting.market_history_wait_time
-
-    MARKET_STRUCTURE_URL = f'https://esi.evetech.net/latest/markets/structures/{structure_id}/?page='
     SCOPE = ['esi-markets.structure_markets.v1']
 
     orders_filename = f"output/marketorders_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
@@ -543,9 +186,7 @@ def main():
     market_stats_filename = f"output/marketstats_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
     os.makedirs('output/latest', exist_ok=True)
 
-    logger.info(f"MARKET_STRUCTURE_URL: {MARKET_STRUCTURE_URL}\nSCOPE: {SCOPE}")
-
-    # hit the stopwatch to see how long it takes
+    # Timer start
     start_time = datetime.now()
     logger.info(start_time)
 
@@ -555,26 +196,46 @@ def main():
         logger.info("Configuration mode selected")
         test_mode, csv_save_mode = configuration_mode()
 
+    # Authenticate and create ESI client
+    from ESI_OAUTH_FLOW import get_token
+    token = get_token(client_id=client_id, secret_key=secret_key, requested_scope=SCOPE)
+    client = ESIClient(config=_config, token=token)
+
+    # Fetch market orders
+    def _print_progress(msg):
+        print(msg, end="" if msg.startswith("\r") else "\n")
+
     if test_mode:
         logger.info("test mode selected")
         idslocation = _config.paths.data.type_ids_test
-        token = get_token(SCOPE)
-        market_orders = fetch_market_orders_test_mode(test_mode, token, MARKET_STRUCTURE_URL, market_orders_wait_time)
+        orders_result = client.fetch_market_orders(
+            structure_id=_config.esi.structure_id,
+            max_pages=3,
+            wait_time=_config.rate_limiting.market_orders_wait_time,
+            progress_callback=_print_progress,
+        )
     else:
         logger.info("standard mode selected")
         idslocation = _config.paths.data.type_ids
-        token = get_token(SCOPE)
-        market_orders = fetch_market_orders_standard_mode(token, MARKET_STRUCTURE_URL, market_orders_wait_time)
+        orders_result = client.fetch_market_orders(
+            structure_id=_config.esi.structure_id,
+            max_pages=None,
+            wait_time=_config.rate_limiting.market_orders_wait_time,
+            progress_callback=_print_progress,
+        )
 
-    Mkt_time_to_complete = datetime.now() - start_time
-    mkt_time_seconds = Mkt_time_to_complete.total_seconds()
-    Avg_market_response_time = (mkt_time_seconds * 1000) / len(market_orders)
+    market_orders = orders_result.data
+    mkt_time_seconds = orders_result.elapsed_seconds
+    if market_orders:
+        Avg_market_response_time = (mkt_time_seconds * 1000) / len(market_orders)
+    else:
+        Avg_market_response_time = 0
 
     logger.info(
-        f'done. Time to complete market orders: {round(mkt_time_seconds, 2)}s, avg market response time: {round(Avg_market_response_time, 2)}ms')
+        f'Market orders done: {mkt_time_seconds:.2f}s, avg: {Avg_market_response_time:.2f}ms')
 
+    # Read type IDs
     type_idsCSV = pd.read_csv(idslocation)
-
     try:
         type_ids = type_idsCSV['type_ids'].tolist()
     except KeyError:
@@ -583,18 +244,39 @@ def main():
         except KeyError:
             type_ids = type_idsCSV['typeID'].tolist()
 
-    logger.info("updating history data")
-    history_start = datetime.now()
-    historical_df = pd.DataFrame(fetch_market_history(type_ids, region_id, market_history_wait_time))
-    hist_time_to_complete = datetime.now() - history_start
-    logger.info(f"history data complete: {hist_time_to_complete}")
+    # Fetch market history
+    logger.info("Fetching market history...")
+    print("-" * 80)
+    print(f"Querying ESI history for {len(type_ids)} items.")
+    print("-" * 80)
+    history_result = client.fetch_market_history(
+        region_id=_config.esi.region_id,
+        type_ids=type_ids,
+        wait_time=_config.rate_limiting.market_history_wait_time,
+        progress_callback=_print_progress,
+    )
+    historical_df = pd.DataFrame(history_result.data)
+    hist_time_seconds = history_result.elapsed_seconds
+    logger.info(f"History complete: {hist_time_seconds:.2f}s")
 
+    print("\n")
+    print("=" * 80)
+    print("Market History Complete")
+    print("=" * 80)
+
+    # Process data
     orders = pd.DataFrame(market_orders)
     new_filtered_orders = filterorders(type_ids, orders)
     merged_sell_orders = aggregate_sell_orders(new_filtered_orders)
-    final_data = merge_market_stats(merged_sell_orders, historical_df)
+
+    # Fetch SDE names
+    sde_type_ids = merged_sell_orders['type_id'].unique().tolist()
+    sde_names = ESIClient.fetch_sde_names(sde_type_ids)
+
+    final_data = merge_market_stats(merged_sell_orders, historical_df, sde_names)
     with_jita_price = get_jita_prices(final_data)
 
+    # Save files
     if csv_save_mode:
         logger.info("-----------saving files and exiting----------------")
 
@@ -622,6 +304,7 @@ def main():
                 print("Google Sheets update failed. Run 'uv run python setup.py' to configure.")
                 logger.info("Continuing with local file operations...")
 
+    # Final summary
     finish_time = datetime.now()
     total_time = finish_time - start_time
 
@@ -631,13 +314,12 @@ def main():
     if _config.google_sheets.enabled:
         print("Google Sheets update was enabled for this run.")
     print("-" * 80)
-    hist_time_seconds = hist_time_to_complete.total_seconds()
     total_time_seconds = total_time.total_seconds()
 
     logger.info(
-        f"Time to complete:\nMARKET ORDERS: {round(mkt_time_seconds, 2)}s, avg: {round(Avg_market_response_time, 2)}ms\n"
-        f"MARKET_HISTORY: {round(hist_time_seconds, 2)}s, avg: {round(hist_time_seconds/len(type_ids), 2)}ms")
-    logger.info(f"TOTAL TIME TO COMPLETE: {round(total_time_seconds, 2)}s")
+        f"Time to complete:\nMARKET ORDERS: {mkt_time_seconds:.2f}s, avg: {Avg_market_response_time:.2f}ms\n"
+        f"MARKET_HISTORY: {hist_time_seconds:.2f}s, avg: {hist_time_seconds/max(len(type_ids),1):.2f}ms")
+    logger.info(f"TOTAL TIME TO COMPLETE: {total_time_seconds:.2f}s")
     logger.info("=" * 80)
 
 
