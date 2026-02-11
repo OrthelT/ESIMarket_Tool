@@ -15,6 +15,8 @@ from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
 
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
+
 from config import load_config, check_env_file, ConfigurationError
 from esi_client import ESIClient
 from rate_limiter import TokenBucketRateLimiter
@@ -55,11 +57,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _print_progress(msg: str) -> None:
-    """Default progress callback — prints to stdout."""
-    print(msg, end="" if msg.startswith("\r") else "\n")
-
-
 async def run(args: argparse.Namespace) -> None:
     """Main orchestration: load config, authenticate, fetch, process, export."""
     global logger
@@ -94,10 +91,7 @@ async def run(args: argparse.Namespace) -> None:
     client_id = os.getenv('CLIENT_ID')
     secret_key = os.getenv('SECRET_KEY')
 
-    # 4. Progress callback (silent in headless mode)
-    progress_callback = _print_progress
-
-    # 5. Output directory (CLI flag > config > default)
+    # 4. Output directory (CLI flag > config > default)
     if args.output_dir:
         output_dir = config.resolve_path(args.output_dir)
     else:
@@ -125,22 +119,32 @@ async def run(args: argparse.Namespace) -> None:
         tokens_per_second=config.rate_limiting.tokens_per_second,
     )
 
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        disable=args.headless,
+    )
+
     async with ESIClient(config=config, token=token, rate_limiter=rate_limiter) as esi:
-        # 7. Fetch market orders
         start_time = datetime.now()
         logger.info(f"Run started at {start_time}")
 
-        orders_result = await esi.fetch_market_orders(
-            structure_id=config.esi.structure_id,
-            progress_callback=progress_callback,
-        )
+        # 5. Fetch market orders
+        with progress:
+            orders_result = await esi.fetch_market_orders(
+                structure_id=config.esi.structure_id,
+                progress=progress,
+            )
 
         market_orders = orders_result.data
         mkt_time = orders_result.elapsed_seconds
         avg_time = (mkt_time * 1000 / len(market_orders)) if market_orders else 0
         logger.info(f"Market orders: {mkt_time:.2f}s, avg: {avg_time:.2f}ms")
 
-        # 8. Read type IDs
+        # 6. Read type IDs
         type_ids_path = config.paths.data.type_ids
         type_ids_df = pd.read_csv(type_ids_path)
         for col in ('type_ids', 'type_id', 'typeID'):
@@ -151,24 +155,17 @@ async def run(args: argparse.Namespace) -> None:
             logger.error(f"No recognized type_id column in {type_ids_path}")
             sys.exit(1)
 
-        # 9. Fetch market history
-        print("-" * 80)
-        print(f"Querying ESI history for {len(type_ids)} items.")
-        print("-" * 80)
-        history_result = await esi.fetch_market_history(
-            region_id=config.esi.region_id,
-            type_ids=type_ids,
-            progress_callback=progress_callback,
-        )
+        # 7. Fetch market history
+        with progress:
+            history_result = await esi.fetch_market_history(
+                region_id=config.esi.region_id,
+                type_ids=type_ids,
+                progress=progress,
+            )
         historical_df = pd.DataFrame(history_result.data)
         hist_time = history_result.elapsed_seconds
 
-        print("\n")
-        print("=" * 80)
-        print("Market History Complete")
-        print("=" * 80)
-
-        # 10. Process data
+        # 8. Process data
         orders_df = pd.DataFrame(market_orders)
         filtered = filter_orders(type_ids, orders_df)
         sell_agg = aggregate_sell_orders(filtered)

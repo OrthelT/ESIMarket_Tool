@@ -9,9 +9,9 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable
 
 import aiohttp
+from rich.progress import Progress
 
 from config import AppConfig
 from rate_limiter import TokenBucketRateLimiter
@@ -70,13 +70,13 @@ class ESIClient:
     async def fetch_market_orders(
         self,
         structure_id: int,
-        progress_callback: Callable[[str], None] | None = None,
+        progress: Progress | None = None,
     ) -> FetchResult:
         """Fetch all market orders from a structure.
 
         Args:
             structure_id: The structure to fetch orders from
-            progress_callback: Optional callback for progress messages
+            progress: Optional Rich Progress instance for progress display
 
         Returns:
             FetchResult with orders data and fetch statistics
@@ -88,6 +88,7 @@ class ESIClient:
         total_pages = 1
         retries = 0
         result = FetchResult()
+        task_id = progress.add_task("Market orders", total=None) if progress else None
 
         logger.info("Fetching market orders...")
 
@@ -96,11 +97,11 @@ class ESIClient:
             async with self._session.get(url_base + str(page), headers=self._auth_headers) as response:
                 if 'X-Pages' in response.headers:
                     total_pages = int(response.headers['X-Pages'])
+                    if progress and task_id is not None:
+                        progress.update(task_id, total=total_pages)
 
-                percent = round((page / total_pages) * 100)
-
-                if progress_callback:
-                    progress_callback(f"\rFetching page {page} of {total_pages} ({percent}% complete)")
+                if progress and task_id is not None:
+                    progress.update(task_id, completed=page)
 
                 # Check ESI error limits
                 errors_left = int(response.headers.get('X-ESI-Error-Limit-Remain', 0))
@@ -163,14 +164,14 @@ class ESIClient:
         self,
         region_id: int,
         type_ids: list[int],
-        progress_callback: Callable[[str], None] | None = None,
+        progress: Progress | None = None,
     ) -> FetchResult:
         """Fetch market history for a list of type IDs.
 
         Args:
             region_id: The region to fetch history from
             type_ids: List of item type IDs to fetch history for
-            progress_callback: Optional callback for progress messages
+            progress: Optional Rich Progress instance for progress display
 
         Returns:
             FetchResult with history data and fetch statistics
@@ -182,19 +183,16 @@ class ESIClient:
         item_count = len(type_ids)
         logger.info(f"Fetching market history for {item_count} items...")
 
-        if progress_callback:
-            progress_callback(f"Querying ESI history for {item_count} items.")
-
         result = FetchResult()
         retries = 0
         items_processed = 0
+        task_id = progress.add_task("Market history", total=item_count) if progress else None
 
         for item in type_ids:
             items_processed += 1
-            percent = round((items_processed / item_count) * 100)
 
-            if progress_callback:
-                progress_callback(f"\rFetching history: item {items_processed}/{item_count} ({percent}%)")
+            if progress and task_id is not None:
+                progress.update(task_id, completed=items_processed)
 
             page = 1
             max_pages = 1
