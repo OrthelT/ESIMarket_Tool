@@ -13,6 +13,7 @@ dependencies = [
     "requests>=2.32",
     "requests-oauthlib>=2.0",
     "rich>=13.7",
+    "rich-progress>=0.4.0",
 ]
 
 [project.scripts]

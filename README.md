@@ -35,12 +35,36 @@ Tool for retrieving and analyzing data from Eve Online player-owned markets. Wri
    ```
 
 2. Clone the repository and install dependencies:
+   Navigate to the directory where you want to install the app. Then:
    ```bash
    git clone https://github.com/yourusername/esi-market-tool.git
-   cd esi-market-tool
-   uv sync
+   cd esi-market-tool # Git automatically installs in a new folder in your current directory. 
    ```
 
+3. Run UV sync:
+```bash
+    uv sync
+```
+
+### Quick Setup (Recommended)
+Run the interactive setup wizard:
+```bash
+uv run python setup.py
+```
+
+This will guide you through configuring:
+- Your Eve developers account. 
+- EVE API credentials (CLIENT_ID, SECRET_KEY) 
+- ESI settings (structure ID, region)
+- Rate limiting options
+- Google Sheets integration (optional)
+
+**Run a Market Query:**
+```bash
+uv run esi_markets.py
+```
+
+## Advanced Configuration
 ### Alternative: pip installation
 1. Install Python 3.11 or later:
    - Windows: Download from [python.org](https://www.python.org/downloads/)
@@ -50,23 +74,9 @@ Tool for retrieving and analyzing data from Eve Online player-owned markets. Wri
 2. Create a virtual environment and install dependencies:
    ```bash
    python3 -m venv venv
+   # activate your virtual environment
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    pip install -e .
-   ```
-
-### All Platforms
-
-#### Quick Setup (Recommended)
-Run the interactive setup wizard:
-```bash
-uv run python setup.py
-```
-
-This will guide you through configuring:
-- EVE API credentials (CLIENT_ID, SECRET_KEY)
-- ESI settings (structure ID, region)
-- Rate limiting options
-- Google Sheets integration (optional)
 
 #### Manual Setup
 1. Register through the Eve developer portal: https://developers.eveonline.com/

@@ -13,7 +13,7 @@ verbose_console_logging = true
 
 [rate_limiting]
 market_orders_wait_time = 0.1
-market_history_wait_time = 0.3
+market_history_wait_time = 0.1
 
 [google_sheets]
 enabled = true
@@ -24,6 +24,9 @@ workbook_id = "https://docs.google.com/spreadsheets/d/1fltqDk3hJJQz12KcFt038Lwgp
 market_stats = "market_stats"
 jita_prices = "jita_prices"
 market_history = "market_history"
+
+[paths]
+output_dir = "output"
 
 [paths.csv]
 market_stats = "output/latest/marketstats_latest.csv"

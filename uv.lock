@@ -85,6 +85,7 @@ dependencies = [
     { name = "requests" },
     { name = "requests-oauthlib" },
     { name = "rich" },
+    { name = "rich-progress" },
 ]
 
 [package.metadata]
@@ -97,6 +98,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.32" },
     { name = "requests-oauthlib", specifier = ">=2.0" },
     { name = "rich", specifier = ">=13.7" },
+    { name = "rich-progress", specifier = ">=0.4.0" },
 ]
 
 [[package]]
@@ -366,6 +368,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/fb/d2/8920e102050a0de7bfabeb4c4614a49248cf8d5d7a8d01885fbb24dc767a/rich-14.2.0.tar.gz", hash = "sha256:73ff50c7c0c1c77c8243079283f4edb376f0f6442433aecb8ce7e6d0b92d1fe4", size = 219990, upload-time = "2025-10-09T14:16:53.064Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/25/7a/b0178788f8dc6cafce37a212c99565fa1fe7872c70c6c9c1e1a372d9d88f/rich-14.2.0-py3-none-any.whl", hash = "sha256:76bc51fe2e57d2b1be1f96c524b890b816e334ab4c1e45888799bfaab0021edd", size = 243393, upload-time = "2025-10-09T14:16:51.245Z" },
+]
+
+[[package]]
+name = "rich-progress"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "rich" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1e/f9/7f0be0954fec876e1efd3c27e983c333467cedaef5253602a5e985c95449/rich_progress-0.4.0.tar.gz", hash = "sha256:2ce60e1527cee6170bbd0baeb857f3b846d5318701a002d6392c3b59382c4ddc", size = 4235, upload-time = "2025-04-06T14:36:38.879Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4e/de/f42241137eedb2fcf38793423f230d84c3b2924e24c03b782d172f7ea1a9/rich_progress-0.4.0-py3-none-any.whl", hash = "sha256:6b8dae8e8b5f87612a672fcb892d8adacd9a961b7246844b02d56db14fd107a1", size = 4798, upload-time = "2025-04-06T14:36:37.026Z" },
 ]
 
 [[package]]

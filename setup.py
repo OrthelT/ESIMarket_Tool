@@ -267,11 +267,11 @@ def setup_eve_credentials():
         "[title]EVE API Credentials Setup[/]\n\n"
         "You need to register an application at the EVE Developer Portal\n"
         "to get your CLIENT_ID and SECRET_KEY.\n\n"
-        "[hint]1. Go to https://developers.eveonline.com/[/]\n"
-        "[hint]2. Create a new application[/]\n"
-        "[hint]3. Add scope: esi-markets.structure_markets.v1[/]\n"
-        "[hint]4. Set callback URL: http://localhost:8000/callback[/]\n"
-        "[hint]5. Copy your CLIENT_ID and SECRET_KEY below[/]",
+        "[hint]1. Go to [/][link]https://developers.eveonline.com/[/]\n"
+        "[hint]2. Click[/] [blue][bold]Create Application[/][/]\n"
+        "[hint]3. Add scope:[/] [highlight]esi-markets.structure_markets.v1[/]\n"
+        "[hint]4. Set callback URL:[/] [highlight]http://localhost:8000/callback[/]\n"
+        "[hint]5. Copy your [/][highlight]Client ID[/] and [highlight]Client Secret below[/]",
         box=ROUNDED,
         border_style="info",
     ))
@@ -290,7 +290,7 @@ def setup_eve_credentials():
 
     # Get new values
     client_id = Prompt.ask(
-        "[key]CLIENT_ID[/]",
+        "[key]CLIENT_ID[/]:",
         default=current_id if current_id and current_id != "your_client_id" else "",
     )
 
@@ -323,7 +323,11 @@ def setup_esi_settings():
         "Configure which structure to monitor and which region to query\n"
         "for market history data.\n\n"
         "[hint]Structure ID: The player-owned structure to fetch orders from[/]\n"
-        "[hint]Region ID: The region for market history (affects price averages)[/]\n\n"
+        "[info]Common Structure IDs:[/]\n"
+        "  [value]1035466617946[/] - 4-HWWF Keepstar\n"
+        "  [value]1046831245129[/] - B-9C24 Keepstar\n"
+
+        "[hint]Region ID: The region for market history \n\n"
         "[info]Common Region IDs:[/]\n"
         "  [value]10000002[/] - The Forge (Jita)\n"
         "  [value]10000003[/] - Vale of the Silent\n"
