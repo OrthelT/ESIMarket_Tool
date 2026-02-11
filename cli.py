@@ -160,7 +160,16 @@ def run(args: argparse.Namespace) -> None:
     # 6. Authenticate
     SCOPE = ['esi-markets.structure_markets.v1']
     from ESI_OAUTH_FLOW import get_token
-    token = get_token(client_id=client_id, secret_key=secret_key, requested_scope=SCOPE)
+    token = get_token(
+        client_id=client_id,
+        secret_key=secret_key,
+        requested_scope=SCOPE,
+        headless=args.headless,
+    )
+    if token is None:
+        print("\nError: Authentication failed. In headless mode, a valid token.json must exist.")
+        print("Run interactively first: uv run python esi_markets.py")
+        sys.exit(1)
     esi = ESIClient(config=config, token=token)
 
     # 7. Fetch market orders
