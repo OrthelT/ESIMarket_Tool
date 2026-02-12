@@ -65,6 +65,12 @@ class RateLimitConfig:
 
 
 @dataclass(frozen=True)
+class CachingConfig:
+    enabled: bool = True
+    cache_file: str = "data/history_cache.json"
+
+
+@dataclass(frozen=True)
 class WorksheetNames:
     market_stats: str = "market_stats"
     jita_prices: str = "jita_prices"
@@ -104,6 +110,7 @@ class AppConfig:
     user_agent: UserAgentConfig = UserAgentConfig()
     logging: LoggingConfig = LoggingConfig()
     rate_limiting: RateLimitConfig = RateLimitConfig()
+    caching: CachingConfig = CachingConfig()
     google_sheets: GoogleSheetsConfig = GoogleSheetsConfig()
     paths: PathsConfig = PathsConfig()
     project_root: Path = Path(".")
@@ -170,6 +177,7 @@ def load_config(config_path: str | Path = "config.toml") -> AppConfig:
     user_agent = UserAgentConfig(**raw.get("user_agent", {}))
     logging_cfg = LoggingConfig(**raw.get("logging", {}))
     rate_limiting = RateLimitConfig(**raw.get("rate_limiting", {}))
+    caching = CachingConfig(**raw.get("caching", {}))
 
     gs_raw = raw.get("google_sheets", {})
     worksheets_raw = gs_raw.pop("worksheets", {}) if "worksheets" in gs_raw else {}
@@ -187,6 +195,7 @@ def load_config(config_path: str | Path = "config.toml") -> AppConfig:
         user_agent=user_agent,
         logging=logging_cfg,
         rate_limiting=rate_limiting,
+        caching=caching,
         google_sheets=google_sheets,
         paths=paths,
         project_root=project_root,

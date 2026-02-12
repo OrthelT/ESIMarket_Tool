@@ -153,6 +153,13 @@ def save_config(config: dict[str, Any]):
     lines.append(f"retry_backoff_factor = {rl.get('retry_backoff_factor', 2.0)}")
     lines.append("")
 
+    # Caching section
+    caching = config.get("caching", {})
+    lines.append("[caching]")
+    lines.append(f"enabled = {'true' if caching.get('enabled', True) else 'false'}")
+    lines.append(f'cache_file = "{caching.get("cache_file", "data/history_cache.json")}"')
+    lines.append("")
+
     # Google Sheets section
     lines.append("[google_sheets]")
     lines.append(f"enabled = {'true' if config['google_sheets']['enabled'] else 'false'}")
@@ -479,14 +486,37 @@ def _load_type_ids() -> list[int]:
     return []
 
 
-def _save_type_ids(ids: list[int]) -> None:
-    """Save type IDs to the CSV file."""
+def _load_type_names() -> dict[int, str]:
+    """Load type_id -> type_name mapping from the CSV file."""
+    if not TYPE_IDS_FILE.exists():
+        return {}
+    names: dict[int, str] = {}
+    with open(TYPE_IDS_FILE, newline="") as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames or []
+        id_col = None
+        for col in ("type_ids", "type_id", "typeID"):
+            if col in fieldnames:
+                id_col = col
+                break
+        if not id_col or "type_name" not in fieldnames:
+            return {}
+        for row in reader:
+            tid = row[id_col].strip()
+            name = row.get("type_name", "").strip()
+            if tid and name:
+                names[int(tid)] = name
+    return names
+
+
+def _save_type_ids(ids: list[int], names: dict[int, str] | None = None) -> None:
+    """Save type IDs (and optional names) to the CSV file."""
     TYPE_IDS_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(TYPE_IDS_FILE, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["type_ids"])
+        writer.writerow(["type_ids", "type_name"])
         for tid in sorted(set(ids)):
-            writer.writerow([tid])
+            writer.writerow([tid, (names or {}).get(tid, "")])
 
 
 def manage_type_ids():
@@ -550,9 +580,17 @@ def _view_type_ids():
         Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
         return
 
-    # Fetch names for display
-    console.print("[hint]Fetching item names from ESI...[/]")
-    names = _bulk_resolve_names(ids)
+    # Check CSV for cached names first, only fetch missing from ESI
+    names = _load_type_names()
+    missing = [tid for tid in ids if tid not in names]
+    if missing:
+        console.print(f"[hint]Resolving {len(missing)} item names from ESI...[/]")
+        resolved = _bulk_resolve_names(missing)
+        names.update(resolved)
+        # Persist resolved names back to CSV
+        _save_type_ids(ids, names)
+    else:
+        console.print("[hint]All item names loaded from cache.[/]")
 
     table = Table(title=f"Tracked Items ({len(ids)})", box=ROUNDED, border_style="accent")
     table.add_column("Type ID", style="value", justify="right")
@@ -636,10 +674,13 @@ def _search_esi_names():
 
     if Confirm.ask("[key]Add all found items to tracked type IDs?[/]", default=True):
         current_ids = _load_type_ids()
+        existing_names = _load_type_names()
         new_ids = [item["id"] for item in inventory_types]
+        new_names = {item["id"]: item["name"] for item in inventory_types}
         added = [tid for tid in new_ids if tid not in current_ids]
         merged = current_ids + added
-        _save_type_ids(merged)
+        existing_names.update(new_names)
+        _save_type_ids(merged, existing_names)
         console.print(f"[success]Added {len(added)} new items ({len(merged)} total tracked).[/]")
     else:
         console.print("[info]No items added.[/]")
@@ -705,6 +746,7 @@ def _import_type_ids_csv():
         console.print()
 
     current_ids = _load_type_ids()
+    existing_names = _load_type_names()
     action = Prompt.ask(
         "[key]Merge with existing or replace?[/]",
         choices=["merge", "replace"],
@@ -714,10 +756,10 @@ def _import_type_ids_csv():
     if action == "merge":
         added = [tid for tid in import_ids if tid not in current_ids]
         merged = current_ids + added
-        _save_type_ids(merged)
+        _save_type_ids(merged, existing_names)
         console.print(f"[success]Merged: {len(added)} new items added ({len(merged)} total).[/]")
     else:
-        _save_type_ids(import_ids)
+        _save_type_ids(import_ids, existing_names)
         console.print(f"[success]Replaced: now tracking {len(import_ids)} items.[/]")
 
     Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
@@ -834,7 +876,7 @@ def _run_full_pipeline():
 
     console.print(Panel(
         "[title]Full Pipeline Run[/]\n\n"
-        "This will run the complete data pipeline in headless mode:\n"
+        "This will run the complete data pipeline:\n"
         "  1. Authenticate with ESI\n"
         "  2. Fetch all market orders\n"
         "  3. Fetch market history for tracked items\n"
@@ -852,7 +894,7 @@ def _run_full_pipeline():
 
     try:
         from cli import main as cli_main
-        cli_main(['--headless'])
+        cli_main([])
         console.print("\n[success]Pipeline completed successfully![/]")
     except SystemExit:
         pass

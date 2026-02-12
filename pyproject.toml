@@ -19,3 +19,11 @@ dependencies = [
 [project.scripts]
 mktstatus = "esi_markets:main"
 setup-esi = "setup:main"
+esi = "esi_markets:main"
+esi-setup = "setup:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

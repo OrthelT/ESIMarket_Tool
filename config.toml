@@ -23,6 +23,10 @@ max_retries = 5
 retry_delay = 3.0
 retry_backoff_factor = 2.0
 
+[caching]
+enabled = true
+cache_file = "data/history_cache.json"
+
 [google_sheets]
 enabled = true
 credentials_file = "wcupdates-261109743eb9.json"

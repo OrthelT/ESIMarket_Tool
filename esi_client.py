@@ -13,6 +13,7 @@ from datetime import datetime
 import aiohttp
 from rich.progress import Progress
 
+from cache import HistoryCache
 from config import AppConfig
 from rate_limiter import TokenBucketRateLimiter
 
@@ -28,6 +29,7 @@ class FetchResult:
     total_retries: int = 0
     elapsed_seconds: float = 0.0
     failed_items: list[int] = field(default_factory=list)
+    cache_hits: int = 0
 
 
 class ESIClient:
@@ -39,10 +41,17 @@ class ESIClient:
             result = await esi.fetch_market_orders(...)
     """
 
-    def __init__(self, config: AppConfig, token: dict, rate_limiter: TokenBucketRateLimiter | None = None):
+    def __init__(
+        self,
+        config: AppConfig,
+        token: dict,
+        rate_limiter: TokenBucketRateLimiter | None = None,
+        history_cache: HistoryCache | None = None,
+    ):
         self._config = config
         self._token = token
         self._rate_limiter = rate_limiter or TokenBucketRateLimiter()
+        self._history_cache = history_cache
         self._max_retries = config.rate_limiting.max_retries
         self._retry_delay = config.rate_limiting.retry_delay
         self._retry_backoff = config.rate_limiting.retry_backoff_factor
@@ -165,13 +174,19 @@ class ESIClient:
         region_id: int,
         type_ids: list[int],
         progress: Progress | None = None,
+        type_names: dict[int, str] | None = None,
     ) -> FetchResult:
         """Fetch market history for a list of type IDs.
+
+        Supports HTTP conditional requests (ETag/If-None-Match) when a
+        HistoryCache is injected. Returns 304-cached data alongside fresh
+        200 responses transparently.
 
         Args:
             region_id: The region to fetch history from
             type_ids: List of item type IDs to fetch history for
             progress: Optional Rich Progress instance for progress display
+            type_names: Optional dict mapping type_id -> name for progress display
 
         Returns:
             FetchResult with history data and fetch statistics
@@ -182,6 +197,8 @@ class ESIClient:
 
         item_count = len(type_ids)
         logger.info(f"Fetching market history for {item_count} items...")
+        if self._history_cache:
+            logger.info(f"Cache loaded with {self._history_cache.entry_count} entries")
 
         result = FetchResult()
         retries = 0
@@ -191,18 +208,28 @@ class ESIClient:
         for item in type_ids:
             items_processed += 1
 
+            # Update progress with item name if available
             if progress and task_id is not None:
-                progress.update(task_id, completed=items_processed)
+                item_name = (type_names or {}).get(item, str(item))
+                display_name = item_name[:30] + "..." if len(item_name) > 30 else item_name
+                progress.update(task_id, completed=items_processed, description=f"History: {display_name}")
 
             page = 1
             max_pages = 1
+            skip_cache = False
 
             while page <= max_pages:
                 try:
+                    # Build request headers, merging conditional cache headers
+                    req_headers = dict(self._public_headers)
+                    if self._history_cache and not skip_cache:
+                        cond_headers = self._history_cache.get_conditional_headers(item)
+                        req_headers.update(cond_headers)
+
                     await self._rate_limiter.acquire()
                     async with self._session.get(
                         url_base + str(item),
-                        headers=self._public_headers,
+                        headers=req_headers,
                         timeout=timeout,
                     ) as response:
                         code = response.status
@@ -213,6 +240,21 @@ class ESIClient:
 
                         if 'X-Pages' in response.headers:
                             max_pages = int(response.headers['X-Pages'])
+
+                        # Handle 304 Not Modified — use cached data
+                        if code == 304 and self._history_cache:
+                            if self._history_cache.has_data(item):
+                                cached = self._history_cache.get(item)
+                                result.data.extend(cached.data)
+                                result.cache_hits += 1
+                                result.pages_fetched += 1
+                                logger.debug(f"Cache hit (304) for type_id {item}")
+                                break
+                            else:
+                                # Safety valve: got 304 but no cached data
+                                logger.warning(f"304 for type_id {item} but no cached data, retrying fresh")
+                                skip_cache = True
+                                continue
 
                         if code != 200:
                             result.error_count += 1
@@ -240,6 +282,19 @@ class ESIClient:
                                 break
 
                         data = await response.json(content_type=None)
+
+                        # Store in cache on successful 200
+                        if self._history_cache:
+                            etag = response.headers.get('ETag', '')
+                            last_mod = response.headers.get('Last-Modified', '')
+                            # Cache data with type_id already injected
+                            cache_data = []
+                            if data:
+                                for entry in data:
+                                    entry_copy = dict(entry)
+                                    entry_copy['type_id'] = item
+                                    cache_data.append(entry_copy)
+                            self._history_cache.put(item, etag, last_mod, cache_data)
 
                     if data:
                         for entry in data:
@@ -272,7 +327,8 @@ class ESIClient:
 
         logger.info(f"Market history complete: {result.pages_fetched} items, "
                      f"{len(result.data)} records, {result.error_count} errors, "
-                     f"{result.total_retries} retries, {result.elapsed_seconds:.1f}s")
+                     f"{result.total_retries} retries, {result.cache_hits} cache hits, "
+                     f"{result.elapsed_seconds:.1f}s")
         if result.failed_items:
             logger.warning(f"Failed items: {result.failed_items}")
 
