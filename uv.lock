@@ -223,7 +223,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", specifier = ">=3.13.3" },
+    { name = "aiohttp", specifier = ">=3.9" },
     { name = "gspread", specifier = ">=6.2.1" },
     { name = "numpy", specifier = ">=2.2" },
     { name = "oauthlib", specifier = ">=3.2" },

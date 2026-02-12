@@ -16,3 +16,4 @@ logs/
 get_corp_blueprints.py
 data/test_data/
 dev.py
+archive/
