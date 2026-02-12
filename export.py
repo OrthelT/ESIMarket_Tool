@@ -101,7 +101,8 @@ def _update_worksheet(
 def update_all_google_sheets(config: AppConfig) -> None:
     """Update all Google Sheets worksheets from latest CSV files."""
     gs = config.google_sheets
-    creds = Credentials.from_service_account_file(gs.credentials_file, scopes=GOOGLE_SCOPES)
+    creds_path = config.resolve_path(gs.credentials_file)
+    creds = Credentials.from_service_account_file(str(creds_path), scopes=GOOGLE_SCOPES)
     client = gspread.authorize(credentials=creds)
 
     workbook_id = gs.workbook_id

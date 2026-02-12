@@ -188,15 +188,21 @@ async def run(args: argparse.Namespace) -> None:
     save_jita_csv(with_jita, latest_dir)
 
     # 12. Google Sheets
-    update_sheets = config.google_sheets.enabled and not args.no_sheets
-    if update_sheets:
-        try:
-            logger.info("Updating Google Sheets...")
-            update_all_google_sheets(config)
-            logger.info("Google Sheets update completed successfully")
-        except Exception as e:
-            logger.error(f"Failed to update Google Sheets: {e}")
-            print("Google Sheets update failed. Run 'uv run python setup.py' to configure.")
+    sheets_updated = False
+    if config.google_sheets.enabled and not args.no_sheets:
+        creds_path = config.resolve_path(config.google_sheets.credentials_file)
+        if not creds_path.exists():
+            logger.warning(f"Google Sheets credentials not found: {creds_path}")
+            print("Google Sheets is enabled but not configured. Run 'uv run python setup.py' to set up credentials.")
+        else:
+            try:
+                logger.info("Updating Google Sheets...")
+                update_all_google_sheets(config)
+                logger.info("Google Sheets updated successfully")
+                sheets_updated = True
+            except Exception as e:
+                logger.error(f"Failed to update Google Sheets: {e}")
+                print(f"Google Sheets update failed: {e}")
 
     # 13. Summary
     total_time = (datetime.now() - start_time).total_seconds()
@@ -204,8 +210,8 @@ async def run(args: argparse.Namespace) -> None:
     print("=" * 80)
     print("ESI Request Completed Successfully.")
     print(f"Data for {len(final_data)} items retrieved.")
-    if config.google_sheets.enabled and not args.no_sheets:
-        print("Google Sheets update was enabled for this run.")
+    if sheets_updated:
+        print("Google Sheets updated successfully.")
     print("-" * 80)
 
     logger.info(f"MARKET ORDERS: {mkt_time:.2f}s | HISTORY: {hist_time:.2f}s | TOTAL: {total_time:.2f}s")
