@@ -77,6 +77,16 @@ def rename_move_and_archive_csv(
         shutil.copy(history_files[0], latest / "markethistory_latest.csv")
         logger.info(f"Latest history copied to: {latest / 'markethistory_latest.csv'}")
 
+    # Copy latest marketorders
+    orders_files = sorted(
+        [f for f in all_csv if f.name.startswith("marketorders")],
+        key=lambda f: f.stat().st_mtime,
+        reverse=True,
+    )
+    if orders_files:
+        shutil.copy(orders_files[0], latest / "marketorders_latest.csv")
+        logger.info(f"Latest orders copied to: {latest / 'marketorders_latest.csv'}")
+
     if cleanup_mode == "archive":
         for f in all_csv:
             if f.name.startswith("markethistory"):
