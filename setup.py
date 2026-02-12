@@ -243,7 +243,7 @@ def main_menu():
         menu_table.add_column("Description", style="menu.desc")
 
         for key, option, desc in menu_items:
-            menu_table.add_row(f"[{key}]", option, desc)
+            menu_table.add_row(f"\\[{key}]", option, desc)
 
         console.print(menu_table)
         console.print()
@@ -518,7 +518,7 @@ def manage_type_ids():
         sub_table.add_column("Option", style="menu.item", width=24)
         sub_table.add_column("Description", style="menu.desc")
         for key, option, desc in sub_items:
-            sub_table.add_row(f"[{key}]", option, desc)
+            sub_table.add_row(f"\\[{key}]", option, desc)
 
         console.print(sub_table)
         console.print()
@@ -753,7 +753,7 @@ def run_esi_query():
         sub_table.add_column("Option", style="menu.item", width=28)
         sub_table.add_column("Description", style="menu.desc")
         for key, option, desc in sub_items:
-            sub_table.add_row(f"[{key}]", option, desc)
+            sub_table.add_row(f"\\[{key}]", option, desc)
 
         console.print(sub_table)
         console.print()
@@ -1218,6 +1218,11 @@ def show_welcome():
     welcome_text.append("  - Eve Developer Portal account\n", style="hint")
     welcome_text.append("  - CLIENT_ID and SECRET_KEY from your ESI app\n", style="hint")
     welcome_text.append("  - (Optional) Google Cloud credentials for Sheets\n", style="hint")
+    welcome_text.append("  - (Required) ESI Structure ID and Region ID\n", style="hint")
+    welcome_text.append("  - (Recommended) User-Agent information\n", style="hint")
+    welcome_text.append("  - (Optional) Rate Limiting settings\n", style="hint")
+    welcome_text.append("  - (Optional) Output directory\n", style="hint")
+    welcome_text.append("  - (Optional) Google Sheets settings\n", style="hint")
 
     console.print(Panel(
         Align.center(welcome_text),
