@@ -109,14 +109,15 @@ project_folder/
 ├── config.py               # Configuration management (dataclasses)
 ├── esi_client.py           # ESI HTTP client (market orders/history)
 ├── ESI_OAUTH_FLOW.py       # OAuth2 authentication with callback server
+├── rate_limiter.py         # Async token bucket rate limiter
+├── cache.py                # ESI request caching (conditional requests)
 ├── market_data.py          # Pure data processing (pandas operations)
 ├── export.py               # CSV writing and Google Sheets updates
 ├── file_cleanup.py         # File management
 ├── get_jita_prices.py      # Jita price retrieval
 ├── logging_utils.py        # Logging configuration
 ├── data/
-│   ├── type_ids.csv        # Items to track (production)
-│   └── type_ids_test.csv   # Test items list
+│   ├── type_ids.csv        # Items to track
 ├── output/
 │   ├── latest/             # Most recent data
 │   ├── archive/            # Older files (auto-cleaned after 30 days)
@@ -204,8 +205,6 @@ google_credentials.json
 All settings are configured in `config.toml` (ships with opinionated defaults):
 
 ### Main Settings
-- **`[mode]`** - Operational modes
-  - `prompt_config_mode`: Enable/disable interactive configuration prompts (CLI flags override this)
 - **`[esi]`** - ESI API settings
   - `structure_id`: Structure to monitor (default: 4-HWWF Keepstar)
   - `region_id`: Region for market history (default: Vale of the Silent)
@@ -214,9 +213,15 @@ All settings are configured in `config.toml` (ships with opinionated defaults):
   - Data file paths for type IDs (production and test)
 - **`[logging]`** - Logging configuration
   - `verbose_console_logging`: Control console output detail
-- **`[rate_limiting]`** - Request throttling
-  - `market_orders_wait_time`: Delay between market requests (default: 0.1s)
-  - `market_history_wait_time`: Delay between history requests (default: 0.3s)
+- **`[rate_limiting]`** - Token bucket rate limiter
+  - `burst_size`: Maximum burst before throttling (default: 10)
+  - `tokens_per_second`: Steady-state request rate (default: 5.0)
+  - `max_retries`: Per-request retry limit (default: 5)
+  - `retry_delay`: Initial retry delay in seconds (default: 3.0)
+  - `retry_backoff_factor`: Exponential backoff multiplier (default: 2.0)
+- **`[caching]`** - ESI request caching
+  - `enabled`: Enable/disable conditional request caching (default: true)
+  - `cache_file`: Path to history cache file (default: `data/history_cache.json`)
 - **`[google_sheets]`** - Google Sheets integration
   - `enabled`: Enable/disable automatic Google Sheets updates (default: false)
   - `credentials_file`: Path to Google service account credentials
@@ -226,8 +231,8 @@ See `config.toml.example` for full configuration options with detailed comments.
 
 ### Configuration Priority
 CLI flags override config.toml settings:
-1. **`--headless`** forces standard mode, CSV output, no prompts
-2. **`--mode test|standard`** skips the interactive mode prompt
+1. **`--headless`** forces CSV output, no prompts, progress bars disabled
+2. **`-i` / `--interactive`** shows a menu for selecting sub-pipelines
 3. **`--no-sheets`** disables Google Sheets regardless of config
 4. **`--output-dir`** overrides the configured output directory
 
@@ -244,8 +249,7 @@ uv run python esi_markets.py
 On first run, the script will:
 1. Open your browser for Eve SSO authentication
 2. Automatically capture the OAuth callback (no manual URL pasting required)
-3. Prompt for test or standard mode (if `prompt_config_mode = true` in config.toml)
-4. Fetch market data and save to CSV files
+3. Fetch all market data and save to CSV files
 
 ### CLI Flags
 
@@ -255,9 +259,8 @@ The tool supports command-line flags for automation and scripting:
 # Headless mode (no prompts, for cron/scheduled runs)
 uv run python esi_markets.py --headless
 
-# Specify mode explicitly (skips interactive prompt)
-uv run python esi_markets.py --mode test      # Test mode: 3 pages only
-uv run python esi_markets.py --mode standard  # Standard mode: all pages
+# Interactive mode (menu-driven sub-pipeline selection)
+uv run python esi_markets.py -i
 
 # Skip Google Sheets update (even if enabled in config)
 uv run python esi_markets.py --no-sheets
@@ -271,15 +274,9 @@ uv run python esi_markets.py --headless --no-sheets --output-dir /data/eve
 
 ### Running Modes
 
-1. **Test Mode**: Limited data pull for testing configuration
-   - Uses `data/type_ids_test.csv` (abbreviated item list)
-   - Fetches only 3 pages of market orders
-   - Skips Google Sheets update
-
-2. **Standard Mode**: Full data collection
-   - Uses `data/type_ids.csv` (complete item list)
-   - Fetches all available market order pages
-   - Updates Google Sheets if enabled
+1. **Default**: Full pipeline — fetches all market order pages, history, Jita prices, and exports
+2. **Interactive** (`-i`): Menu-driven mode with options to run the full pipeline, orders only, or history only
+3. **Headless** (`--headless`): Same as default but with progress bars disabled and no interactive prompts — ideal for cron/scheduled runs
 
 ### Scheduled Execution
 
@@ -302,8 +299,8 @@ Example cron job (runs every 6 hours):
 
 ### CSV Files
 - **`marketstats_latest.csv`**: Current market summary with Jita price comparison
-- **`marketorders_[timestamp].csv`**: Complete market order listings
-- **`markethistory_[timestamp].csv`**: 30-day market history
+- **`marketorders_latest.csv`**: Complete market order listings
+- **`markethistory_latest.csv`**: 30-day market history
 - **`jita_prices.csv`**: Current Jita market prices
 
 ### File Management
@@ -323,10 +320,12 @@ If enabled in `config.toml`, the tool updates three worksheets:
 
 The codebase follows a modular architecture with clear separation of concerns:
 
-- **`cli.py`**: CLI argument parsing and main orchestration
+- **`cli.py`**: CLI argument parsing, interactive mode, and main orchestration
 - **`config.py`**: Configuration management using frozen dataclasses
-- **`esi_client.py`**: ESI HTTP client with retry logic and rate limiting
+- **`esi_client.py`**: Async ESI HTTP client with retry logic and rate limiting
 - **`ESI_OAUTH_FLOW.py`**: OAuth2 flow with automatic callback server
+- **`rate_limiter.py`**: Async token bucket rate limiter (DI into ESIClient)
+- **`cache.py`**: ESI request caching with conditional requests (ETag/Last-Modified)
 - **`market_data.py`**: Pure data processing (no I/O, network-agnostic)
 - **`export.py`**: CSV writing and Google Sheets updates
 - **`file_cleanup.py`**: File archival and cleanup logic
@@ -350,7 +349,7 @@ See `docs/refactoring_log.md` for detailed architecture decisions and `CLAUDE.md
 - Use `--output-dir` to specify a custom location if needed
 
 **Rate limit errors from ESI**
-- Increase wait times in `config.toml`: `market_orders_wait_time`, `market_history_wait_time`
-- The tool monitors ESI error limits and pauses automatically if needed
+- Lower `tokens_per_second` or `burst_size` in `config.toml` under `[rate_limiting]`
+- The tool uses a token bucket rate limiter and monitors ESI error limits, pausing automatically if needed
 
 For questions: Discord @orthel_toralen
