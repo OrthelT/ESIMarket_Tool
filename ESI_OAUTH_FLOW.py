@@ -1,114 +1,213 @@
+"""
+OAuth2 authentication flow for EVE Online SSO.
+
+Includes a lightweight HTTP callback server so users don't see a
+'connection refused' error after authorizing in the browser.
+"""
+
+import http.server
 import json
-import os
+import logging
+import threading
 import time
 import webbrowser
-from requests_oauthlib import OAuth2Session
-from dotenv import load_dotenv
+from pathlib import Path
+from urllib.parse import urlparse, parse_qs
 
-# Environment set up. Here we gather the environment information to request an Oauth token. Note that we're using
-# insecure transport. This tells the Eve SSO that we want to use standard HTTP:// rather than HTTPS:// to login.
-# This is so we can use a http://localhost:8000 connection for development without setting up a HTTPS:// server.
-# This should be used for development purpose only. HTTPS:// should be used in production instead.
-load_dotenv()
-os.environ[
-    'OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # to allow us to use localhost for development. Use HTTPS:// in production.
-CLIENT_ID = os.getenv('CLIENT_ID')  # stored in you .env file
-SECRET_KEY = os.getenv('SECRET_KEY')  # stored in you .env file
-REDIRECT_URI = 'http://localhost:8000/callback'  # workaround so we don't have to set up a real server
+from requests_oauthlib import OAuth2Session
+
+logger = logging.getLogger(__name__)
+
+REDIRECT_URI = 'http://localhost:8000/callback'
 AUTHORIZATION_URL = 'https://login.eveonline.com/v2/oauth/authorize'
 TOKEN_URL = 'https://login.eveonline.com/v2/oauth/token'
-token_file = 'token.json'
-# ------------------------------------------------
-# Functions: Oauth2 Flow
-# -----------------------------------------------
-# call this function from other programs to get an ESI token
-def get_token(requested_scope: str | list[str] | None = None) -> dict | None:
-    if requested_scope is None:
-        requested_scope = ["esi-planets.manage_planets.v1","esi-fleets.read_fleet.v1","esi-fittings.read_fittings.v1","esi-corporations.read_medals.v1","esi-corporations.read_fw_stats.v1","esi-corporations.read_freelance_jobs.v1","publicData","esi-wallet.read_character_wallet.v1","esi-wallet.read_corporation_wallet.v1","esi-search.search_structures.v1","esi-universe.read_structures.v1","esi-corporations.read_corporation_membership.v1","esi-assets.read_assets.v1","esi-markets.structure_markets.v1","esi-corporations.read_structures.v1","esi-characters.read_chat_channels.v1","esi-industry.read_character_jobs.v1","esi-markets.read_character_orders.v1","esi-characters.read_blueprints.v1","esi-characters.read_corporation_roles.v1","esi-corporations.track_members.v1","esi-wallet.read_corporation_wallets.v1","esi-characters.read_notifications.v1","esi-corporations.read_divisions.v1","esi-corporations.read_contacts.v1","esi-assets.read_corporation_assets.v1","esi-corporations.read_titles.v1","esi-corporations.read_blueprints.v1","esi-corporations.read_standings.v1","esi-corporations.read_starbases.v1","esi-corporations.read_container_logs.v1","esi-corporations.read_facilities.v1","esi-characters.read_titles.v1","esi-corporations.read_projects.v1"]
-    """
-    Retrieve a token, refreshing it using the refresh token if available.
-    This function attempts to load an existing token and checks if it is still valid. If the token is
-    expired, it refreshes the token using the refresh token and saves the new token. If no existing
-    token is found, it initiates the process to obtain a new authorization code.
 
-    :param requested_scope: The scope for which the token is being requested. It can be a single
-                            scope represented as a string or multiple scopes represented as a list.
-    :return: A dictionary containing the token information if successful, or None if a new
-             authorization code is needed.
-    examples:
-    get_token('esi-wallet.read_corporation_wallet.v1')
-    get_token(['esi-wallet.read_corporation_wallet.v1', 'esi-assets.read_corporation_assets.v1'])
-    """
-    print('opening ESI session...')
-    print('----------------------------------')
-    print(f'requested scope: {requested_scope}')
-    print('----------------------------------')
+SUCCESS_HTML = """<!DOCTYPE html>
+<html><head><title>ESI Market Tool</title>
+<style>
+  body { font-family: system-ui, sans-serif; display: flex; justify-content: center;
+         align-items: center; height: 100vh; margin: 0; background: #1a1a2e; color: #eee; }
+  .card { text-align: center; padding: 3em; border-radius: 12px;
+          background: #16213e; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  h1 { color: #4ecca3; margin-bottom: 0.5em; }
+  p { color: #aaa; }
+</style></head>
+<body><div class="card">
+  <h1>Authorization Successful!</h1>
+  <p>You can close this tab and return to the terminal.</p>
+</div></body></html>"""
 
-    token = load_token()  # first we try to get a token if we already have one, if not we'll go get one.
+
+def get_token(
+    client_id: str,
+    secret_key: str,
+    requested_scope: str | list[str],
+    token_path: Path = Path("token.json"),
+    headless: bool = False,
+    user_agent: str = "",
+) -> dict | None:
+    """Retrieve a token, refreshing if available, or initiate OAuth flow.
+
+    Args:
+        client_id: EVE SSO application client ID
+        secret_key: EVE SSO application secret key
+        requested_scope: Scope(s) for the token request
+        token_path: Path to the token cache file
+        headless: If True, fail instead of opening a browser for initial auth
+        user_agent: User-Agent header string for OAuth requests
+
+    Returns:
+        Token dict if successful, None if authorization fails
+    """
+    logger.info('Opening ESI session...')
+    logger.info(f'Requested scope: {requested_scope}')
+
+    token = _load_token(token_path)
 
     if token:
-        oauth = get_oauth_session(token, requested_scope)
-        expire = oauth.token['expires_at']  # if your token is expired, we refresh it
-        print(f'token expires at {expire}')
+        oauth = _get_oauth_session(client_id, secret_key, token, requested_scope, token_path, user_agent)
+        expire = oauth.token['expires_at']
+        logger.info(f'Token expires at {expire}')
         if expire < time.time():
-            print("Token expired, refreshing token...")
-            token = oauth.refresh_token(TOKEN_URL, client_id=CLIENT_ID, client_secret=SECRET_KEY)
-            print('saving new token')
-            save_token(token)
-        print('returning token')
+            logger.info("Token expired, refreshing...")
+            token = oauth.refresh_token(TOKEN_URL, client_id=client_id, client_secret=secret_key)
+            _save_token(token, token_path)
         return token
     else:
-        print('need to get an authorization code, stand by')
-        return get_authorization_code(token=None,
-                                      requested_scope=requested_scope)  # first time here? np, we will get you a token by logging into the Eve SSO
-        #You will just refresh this token for future requests.
+        if headless:
+            logger.error("No existing token and running in headless mode. "
+                         "Run interactively first to complete initial authorization.")
+            return None
+        logger.info('No existing token found, starting authorization flow')
+        return _get_authorization_code(
+            client_id=client_id,
+            secret_key=secret_key,
+            requested_scope=requested_scope,
+            token_path=token_path,
+            user_agent=user_agent,
+        )
 
-def load_token():
-    # Load the OAuth token from a file, if it exists.
-    if os.path.exists(token_file):
-        print('loading token...')
-        with open(token_file, 'r') as f:
-            return json.load(f)  # got a token?
-    return None  # no token? no problem, we'll go get one.
+
+def _load_token(token_path: Path) -> dict | None:
+    """Load the OAuth token from a file, if it exists."""
+    if token_path.exists():
+        logger.info('Loading token...')
+        with open(token_path, 'r') as f:
+            return json.load(f)
+    return None
 
 
-# Redirects you to the EVE Online login page to get the authorization code.
+class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
+    """HTTP handler that captures a single OAuth redirect and serves a success page."""
 
-def get_authorization_code(token=None, requested_scope=None):
-    oauth = get_oauth_session(token=None, requested_scope=requested_scope)
-    print(
-        f"Opening browser to log in with Eve SSO. Please authorize access to the following scopes: {requested_scope}"
-    )
+    redirect_url: str | None = None
+
+    def do_GET(self) -> None:
+        # Store the full redirect URL
+        _OAuthCallbackHandler.redirect_url = f"http://localhost:8000{self.path}"
+        # Serve success page
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html')
+        self.end_headers()
+        self.wfile.write(SUCCESS_HTML.encode())
+
+    def log_message(self, format, *args) -> None:
+        # Suppress default stderr logging; use our logger instead
+        logger.debug(f"OAuth callback: {format % args}")
+
+
+def _wait_for_callback(port: int = 8000, timeout: int = 120) -> str | None:
+    """Start a one-shot HTTP server and wait for the OAuth callback.
+
+    Returns the full redirect URL, or None on timeout.
+    """
+    _OAuthCallbackHandler.redirect_url = None
+
+    server = http.server.HTTPServer(('localhost', port), _OAuthCallbackHandler)
+    server.timeout = timeout
+
+    # Run in a thread so we can implement a clean timeout
+    def _serve():
+        server.handle_request()  # Handle exactly one request
+
+    thread = threading.Thread(target=_serve, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+
+    server.server_close()
+    return _OAuthCallbackHandler.redirect_url
+
+
+def _get_authorization_code(
+    client_id: str,
+    secret_key: str,
+    requested_scope: str | list[str],
+    token_path: Path,
+    user_agent: str = "",
+) -> dict:
+    """Open browser for EVE SSO login and capture the authorization code.
+
+    Starts a local HTTP server to automatically capture the redirect.
+    Falls back to manual URL pasting if the server fails.
+    """
+    oauth = _get_oauth_session(client_id, secret_key, token=None, requested_scope=requested_scope, token_path=token_path, user_agent=user_agent)
     authorization_url, state = oauth.authorization_url(AUTHORIZATION_URL)
-    print(f"Please go to this URL and authorize access: {authorization_url}")
-    webbrowser.open(authorization_url)
-    redirect_response = input('Paste the full redirect URL here: ')
-    token = oauth.fetch_token(TOKEN_URL, authorization_response=redirect_response, client_secret=SECRET_KEY)
-    save_token(token)
+
+    print("Opening browser for EVE SSO login. Please authorize the requested scopes.")
+    logger.info(f"Authorization URL: {authorization_url}")
+
+    # Try to capture redirect automatically via callback server
+    redirect_url = None
+    try:
+        webbrowser.open(authorization_url)
+        print("Waiting for authorization (the browser should open automatically)...")
+        redirect_url = _wait_for_callback(port=8000, timeout=120)
+    except OSError as e:
+        logger.warning(f"Could not start callback server: {e}")
+
+    if not redirect_url:
+        # Fallback: manual paste
+        print("\nAutomatic capture failed or timed out.")
+        redirect_url = input('Paste the full redirect URL here: ')
+
+    token = oauth.fetch_token(TOKEN_URL, authorization_response=redirect_url, client_secret=secret_key)
+    _save_token(token, token_path)
     return token
 
 
-def get_oauth_session(token=None, requested_scope=None):
-    # Get an OAuth session, refreshing the token if necessary.
-    # Finally, we can open an Oath session.
-    print(f'opening Oauth session...SCOPE: {requested_scope}')
-    extra = {'client_id': CLIENT_ID, 'client_secret': SECRET_KEY}
+def _get_oauth_session(
+    client_id: str,
+    secret_key: str,
+    token: dict | None = None,
+    requested_scope: str | list[str] | None = None,
+    token_path: Path = Path("token.json"),
+    user_agent: str = "",
+) -> OAuth2Session:
+    """Get an OAuth session, optionally with an existing token for auto-refresh."""
+    extra = {'client_id': client_id, 'client_secret': secret_key}
     if token:
-        return OAuth2Session(CLIENT_ID, token=token, auto_refresh_url=TOKEN_URL, auto_refresh_kwargs=extra,
-                             token_updater=save_token)
+        session = OAuth2Session(
+            client_id,
+            token=token,
+            auto_refresh_url=TOKEN_URL,
+            auto_refresh_kwargs=extra,
+            token_updater=lambda t: _save_token(t, token_path),
+        )
     else:
-        return OAuth2Session(CLIENT_ID, redirect_uri=REDIRECT_URI, scope=requested_scope)
+        session = OAuth2Session(client_id, redirect_uri=REDIRECT_URI, scope=requested_scope)
+
+    if user_agent:
+        session.headers['User-Agent'] = user_agent
+    return session
 
 
-def save_token(token):
-    # Save the OAuth token, including refresh token to a file.
-    print('saving token...')
-    with open(token_file, 'w') as f:
+def _save_token(token: dict, token_path: Path) -> None:
+    """Save the OAuth token to a file."""
+    logger.info('Saving token...')
+    with open(token_path, 'w') as f:
         json.dump(token, f)
-        # note some IDEs will flag this as an error.
-        # This is because jason.dump expects a str, but got a TextIO instead.
-        # TextIO does support string writing, so this is not actually an issue.
-    print('token saved')
+    logger.info('Token saved')
+
 
 if __name__ == '__main__':
     pass

@@ -9,9 +9,14 @@ __pycache__/
 
 # Data files
 market*.csv
+jita*.csv
 
 # Runtime files
 logs/
 get_corp_blueprints.py
 data/test_data/
+dev.py
+archive/
+config.toml
+*.bak
 dev.py
