@@ -4,7 +4,7 @@
 Tool for retrieving and analyzing data from Eve Online player-owned markets. Written in Python 3.11+.
 
 ## Change Log
-- **Version 0.2.0** - Architecture refactoring: modular design, CLI support, headless mode, OAuth callback server
+- **Version 0.3.0** - Architecture refactoring: modular design, CLI support, headless mode, OAuth callback server
 - **Version 2.0** - Google Sheets integration
 
 ## What it Does
@@ -22,7 +22,7 @@ Tool for retrieving and analyzing data from Eve Online player-owned markets. Wri
 
 ### Prerequisites
 - Python 3.11 or later
-- `uv` package manager (recommended) or pip
+- `uv` package manager (recommended) or pip (see advanced setup)
 
 ### Quick Install with uv (Recommended)
 1. Install `uv` if you don't have it:
@@ -37,7 +37,7 @@ Tool for retrieving and analyzing data from Eve Online player-owned markets. Wri
 2. Clone the repository and install dependencies:
    Navigate to the directory where you want to install the app. Then:
    ```bash
-   git clone https://github.com/yourusername/esi-market-tool.git
+   git clone https://github.com/OrthelT/ESIMarket_Tool.git
    cd esi-market-tool # Git automatically installs in a new folder in your current directory. 
    ```
 
@@ -49,9 +49,11 @@ Tool for retrieving and analyzing data from Eve Online player-owned markets. Wri
 ### Quick Setup (Recommended)
 Run the interactive setup wizard:
 ```bash
-uv run python setup.py
+uv run setup.py
+```
 ```
 
+```
 This will guide you through configuring:
 - Your Eve developers account. 
 - EVE API credentials (CLIENT_ID, SECRET_KEY) 
@@ -75,7 +77,7 @@ uv run esi_markets.py
    ```bash
    python3 -m venv venv
    # activate your virtual environment
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    pip install -e .
 
 #### Manual Setup

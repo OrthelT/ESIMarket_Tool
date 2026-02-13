@@ -9,7 +9,6 @@ import csv
 import os
 import sys
 import tomllib
-import re
 from pathlib import Path
 from typing import Any
 
@@ -23,11 +22,8 @@ from rich.text import Text
 from rich.prompt import Prompt, Confirm, IntPrompt, FloatPrompt
 from rich.rule import Rule
 from rich.align import Align
-from rich.columns import Columns
-from rich.box import ROUNDED, DOUBLE, HEAVY
-from rich.style import Style
+from rich.box import ROUNDED, DOUBLE
 from rich.theme import Theme
-from rich import print as rprint
 
 from gspread.utils import extract_id_from_url
 
@@ -298,9 +294,9 @@ def setup_eve_credentials():
         "You need to register an application at the EVE Developer Portal\n"
         "to get your CLIENT_ID and SECRET_KEY.\n\n"
         "[hint]1. Go to [/][link]https://developers.eveonline.com/[/]\n"
-        "[hint]2. Click[/] [blue][bold]Create Application[/][/]\n"
-        "[hint]3. Add scope:[/] [highlight]esi-markets.structure_markets.v1[/]\n"
-        "[hint]4. Set callback URL:[/] [highlight]http://localhost:8000/callback[/]\n"
+        "[hint]2. Go to Manage Applications and click[/] [blue][bold]Create Application[/][/]\n"
+        "[hint]3. Set callback URL:[/] [highlight]http://localhost:8000/callback[/]\n"
+        "[hint]4. Add scope:[/] [highlight]esi-markets.structure_markets.v1[/]\n"
         "[hint]5. Copy your [/][highlight]Client ID[/] and [highlight]Client Secret below[/]",
         box=ROUNDED,
         border_style="info",
@@ -327,7 +323,6 @@ def setup_eve_credentials():
     secret_key = Prompt.ask(
         "[key]SECRET_KEY[/]",
         default=current_secret if current_secret and current_secret != "your_secret_key" else "",
-        password=True,
     )
 
     if client_id and secret_key:
@@ -361,6 +356,7 @@ def setup_esi_settings():
         "[info]Common Region IDs:[/]\n"
         "  [value]10000002[/] - The Forge (Jita)\n"
         "  [value]10000003[/] - Vale of the Silent\n"
+        "  [value]10000023[/] - Pure Blind\n"
         "  [value]10000043[/] - Domain (Amarr)\n"
         "  [value]10000030[/] - Heimatar (Rens)",
         box=ROUNDED,
@@ -860,7 +856,7 @@ def _run_connectivity_test():
     result = asyncio.run(_test())
 
     if result['success']:
-        console.print(f"\n[success]Connection successful![/]")
+        console.print("\n[success]Connection successful![/]")
         console.print(f"  Orders on page 1: [value]{result['order_count']}[/]")
         console.print(f"  Total pages: [value]{result['total_pages']}[/]")
     else:
