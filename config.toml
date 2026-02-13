@@ -17,10 +17,10 @@ source_url = "https://github.com/OrthelT/ESIMarket_Tool"
 verbose_console_logging = true
 
 [rate_limiting]
-burst_size = 10
-tokens_per_second = 5.0
-max_retries = 5
-retry_delay = 3.0
+burst_size = 20
+tokens_per_second = 10.0
+max_retries = 3
+retry_delay = 2.0
 retry_backoff_factor = 2.0
 
 [caching]
