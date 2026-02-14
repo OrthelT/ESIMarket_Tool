@@ -77,23 +77,68 @@ def print_header():
     console.print()
 
 
+def _has_valid_credentials() -> bool:
+    """Check if .env has valid CLIENT_ID and SECRET_KEY."""
+    if not ENV_FILE.exists():
+        return False
+    env_vars = load_env()
+    client_id = env_vars.get("CLIENT_ID", "")
+    secret_key = env_vars.get("SECRET_KEY", "")
+    return (
+        bool(client_id) and client_id != "your_client_id"
+        and bool(secret_key) and secret_key != "your_secret_key"
+    )
+
+
+def _has_user_agent_contact() -> bool:
+    """Check if user-agent has at least an email or Discord handle."""
+    if not CONFIG_FILE.exists():
+        return False
+    config = load_config()
+    ua = config.get("user_agent", {})
+    return bool(ua.get("email", "").strip()) or bool(ua.get("discord", "").strip())
+
+
+def _is_ready() -> bool:
+    """Check if all required setup steps are complete."""
+    return (
+        _has_valid_credentials()
+        and CONFIG_FILE.exists()
+        and _has_user_agent_contact()
+    )
+
+
 def print_status_bar():
     """Print current configuration status"""
     env_status = "[success]Ready[/]" if ENV_FILE.exists() else "[warning]Not configured[/]"
     config_status = "[success]Ready[/]" if CONFIG_FILE.exists() else "[warning]Missing[/]"
 
     # Check if .env has required values
-    if ENV_FILE.exists():
-        env_content = ENV_FILE.read_text()
-        if "CLIENT_ID" not in env_content or "your_client_id" in env_content:
-            env_status = "[warning]Incomplete[/]"
+    if ENV_FILE.exists() and not _has_valid_credentials():
+        env_status = "[warning]Incomplete[/]"
+
+    ready = _is_ready()
+    if ready:
+        ready_status = "[success]Ready to go![/]"
+    else:
+        # Build a list of what's still missing
+        missing = []
+        if not _has_valid_credentials():
+            missing.append("credentials")
+        if not CONFIG_FILE.exists():
+            missing.append("config")
+        if not _has_user_agent_contact():
+            missing.append("User-Agent \\[3]")
+        ready_status = "[warning]Needs: " + ", ".join(missing) + "[/]"
 
     status_table = Table(show_header=False, box=None, padding=(0, 2))
+    status_table.add_column(justify="center")
     status_table.add_column(justify="center")
     status_table.add_column(justify="center")
     status_table.add_row(
         f"[key]EVE Credentials:[/] {env_status}",
         f"[key]Config:[/] {config_status}",
+        f"[key]Status:[/] {ready_status}",
     )
     console.print(Align.center(status_table))
     console.print()
@@ -219,41 +264,78 @@ def main_menu():
         print_header()
         print_status_bar()
 
-        menu_items = [
-            ("1", "EVE API Credentials", "Set up CLIENT_ID and SECRET_KEY for ESI access"),
-            ("2", "ESI Settings", "Configure structure ID and region"),
-            ("3", "User-Agent", "Identify your app to CCP (recommended)"),
-            ("4", "Type IDs", "Manage tracked item types"),
-            ("5", "Rate Limiting", "Adjust request timing to avoid API limits"),
-            ("6", "Google Sheets", "Set up automatic spreadsheet updates"),
-            ("7", "Logging", "Configure console output verbosity"),
-            ("8", "Output Directory", "Set where CSV files are saved"),
-            ("9", "View Current Config", "Display all current settings"),
-            ("r", "Run ESI Query", "Test connectivity or run the full pipeline"),
-            ("0", "Reset to Defaults", "Restore default configuration"),
-            ("q", "Quit(q)", "Exit setup"),
-        ]
+        HEADER_STYLE = "highlight" # 2d4a5e
 
         menu_table = Table(
-            show_header=False,
-            box=ROUNDED,
-            border_style="accent",
-            padding=(0, 1),
-            expand=True,
+            show_header=False, box=None,
+            padding=(0, 1), pad_edge=True, expand=False,
         )
-        menu_table.add_column("Key", style="menu.number", width=4, justify="center", highlight=True)
+        menu_table.add_column("Key", style="menu.number", width=6, justify="center")
         menu_table.add_column("Option", style="menu.item", width=24)
         menu_table.add_column("Description", style="menu.desc")
 
-        for key, option, desc in menu_items:
-            menu_table.add_row(f"\\[{key}]", option, desc)
+        # --- Required section (white text to stand out) ---
+        menu_table.add_row(
+            Text("".ljust(6), style=HEADER_STYLE),
+            Text("Required".ljust(24), style=HEADER_STYLE),
+            Text("".ljust(80), style=HEADER_STYLE),
+        )
+        for key, option, desc in [
+            ("1", "EVE API Credentials", "CLIENT_ID and SECRET_KEY for ESI access"),
+            ("2", "ESI Settings", "Structure ID and region for market queries"),
+            ("3", "User-Agent", "Identify your app to CCP (strongly recommended)"),
+        ]:
+            menu_table.add_row(f"\\[{key}]", Text(option, style="white"), desc)
+
+        # --- Optional section ---
+        menu_table.add_row(
+            Text("".ljust(6), style=HEADER_STYLE),
+            Text("".ljust(24), style=HEADER_STYLE),
+            Text("".ljust(80), style=HEADER_STYLE),
+        )
+        menu_table.add_row(
+            Text("".ljust(6), style=HEADER_STYLE),
+            Text("Optional".ljust(24), style=HEADER_STYLE),
+            Text("".ljust(80), style=HEADER_STYLE),
+        )
+        for key, option, desc in [
+            ("4", "Type IDs", "Manage which items to track"),
+            ("5", "Rate Limiting", "Adjust request timing (defaults are fine)"),
+            ("6", "Google Sheets", "Automatic spreadsheet updates"),
+            ("7", "Logging", "Console output verbosity"),
+            ("8", "Output Directory", "Where CSV files are saved"),
+        ]:
+            menu_table.add_row(f"\\[{key}]", Text(option, style="menu.item"), desc)
+
+        # --- Tools section ---
+        menu_table.add_row(
+            Text("".ljust(6), style=HEADER_STYLE),
+            Text("".ljust(24), style=HEADER_STYLE),
+            Text("".ljust(80), style=HEADER_STYLE),
+        )
+
+        menu_table.add_row(
+            Text("".ljust(6), style=HEADER_STYLE),
+            Text("Tools".ljust(24), style=HEADER_STYLE),
+            Text("".ljust(80), style=HEADER_STYLE),
+        )
+        for key, option, desc in [
+            ("c", "View Current Config", "Display all current settings"),
+            ("r", "Run ESI Query", "Test connectivity or run the full pipeline"),
+            ("x", "Reset to Defaults", "Restore default configuration"),
+            ("q", "Quit", "Exit setup"),
+        ]:
+            menu_table.add_row(f"\\[{key}]", Text(option, style="menu.item"), desc)
 
         console.print(menu_table)
         console.print()
 
+        if _is_ready():
+            console.print("  [success]\u2714 You're all set![/] Select [accent]\\[r][/] to do a quick test run.\n")
+
         choice = Prompt.ask(
             "[accent]Select an option[/] [hint](q to quit)[/]",
-            choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "r", "R", "0", "q", "Q"],
+            choices=["1", "2", "3", "4", "5", "6", "7", "8", "c", "r", "R", "x", "q", "Q"],
             show_choices=False,
         ).lower()
 
@@ -273,11 +355,11 @@ def main_menu():
             setup_logging()
         elif choice == "8":
             setup_output_directory()
-        elif choice == "9":
+        elif choice == "c":
             view_config()
         elif choice == "r":
             run_esi_query()
-        elif choice == "0":
+        elif choice == "x":
             reset_config()
         elif choice == "q":
             console.print("\n[success]Setup complete![/] Run [highlight]uv run esi-market[/] to start.\n")
@@ -399,10 +481,11 @@ def setup_user_agent():
 
     console.print(Panel(
         "[title]User-Agent Configuration[/]\n\n"
-        "CCP recommends identifying your application in ESI requests.\n"
-        "This helps them contact you if there are issues with your app.\n\n"
-        "[hint]At minimum, provide a contact email or Discord handle.[/]\n"
-        "[hint]All fields are optional but email is strongly recommended.[/]",
+        "We strongly recomment configuring a User-Agent header.\n"
+        "This will allow CCP to contact you if there are problems\n"
+        "rather than bannning you from the ESI.\n\n"
+        "At minimum, provide an email or Discord handle.\n\n"
+        "[hint]All other fields are optional.[/]",
         box=ROUNDED,
         border_style="info",
     ))
@@ -525,8 +608,11 @@ def manage_type_ids():
         console.print(Panel(
             "[title]Type ID Management[/]\n\n"
             f"Currently tracking [value]{len(current_ids)}[/] item types.\n\n"
-            "[hint]Type IDs determine which items the tool fetches\n"
-            "market data for from ESI.[/]",
+            "The app ships with a default list of common items.\n"
+            "You can add, remove, or replace them here.\n\n"
+            "[hint]Note: Market orders are always fetched for the entire structure.\n"
+            "Type IDs control which items get history data and appear in\n"
+            "the aggregated market stats.[/]",
             box=ROUNDED,
             border_style="info",
         ))
@@ -660,7 +746,7 @@ def _search_esi_names():
     table = Table(title="Search Results", box=ROUNDED, border_style="accent")
     table.add_column("#", style="menu.number", justify="right")
     table.add_column("Type ID", style="value", justify="right")
-    table.add_column("Name", style="white")
+    table.add_column("Name", style="bold white")
 
     for i, item in enumerate(inventory_types, 1):
         table.add_row(str(i), str(item["id"]), item["name"])
@@ -684,31 +770,16 @@ def _search_esi_names():
     Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
 
 
-def _import_type_ids_csv():
-    """Import type IDs from an external CSV file"""
-    clear_screen()
-    print_header()
+def _scan_data_csvs() -> list[Path]:
+    """Find CSV files in the data/ directory (excluding type_ids.csv)."""
+    data_dir = Path("data")
+    if not data_dir.exists():
+        return []
+    return sorted(data_dir.glob("*.csv"))
 
-    console.print(Panel(
-        "[title]Import Type IDs from CSV[/]\n\n"
-        "Provide the path to a CSV file containing type IDs.\n"
-        "The file should have a column named one of:\n"
-        "[value]type_ids[/], [value]type_id[/], or [value]typeID[/]\n\n"
-        "[hint]You can choose to merge with or replace existing IDs.[/]",
-        box=ROUNDED,
-        border_style="info",
-    ))
-    console.print()
 
-    file_path = Prompt.ask("[key]CSV file path[/]")
-    path = Path(file_path).expanduser()
-
-    if not path.exists():
-        console.print(f"[error]File not found: {path}[/]")
-        Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
-        return
-
-    # Read and validate
+def _try_read_csv_type_ids(path: Path) -> list[int] | None:
+    """Try to read type IDs from a CSV file. Returns None on failure."""
     try:
         with open(path, newline="") as f:
             reader = csv.DictReader(f)
@@ -717,48 +788,107 @@ def _import_type_ids_csv():
                 if col in (reader.fieldnames or []):
                     col_name = col
                     break
-
             if not col_name:
-                console.print(f"[error]No recognized column (type_ids/type_id/typeID) in {path.name}[/]")
-                Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
-                return
+                return None
+            return [int(row[col_name]) for row in reader if row[col_name].strip()]
+    except Exception:
+        return None
 
-            import_ids = [int(row[col_name]) for row in reader if row[col_name].strip()]
-    except Exception as e:
-        console.print(f"[error]Failed to read CSV: {e}[/]")
-        Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
-        return
 
-    console.print(f"[info]Found {len(import_ids)} type IDs in {path.name}[/]")
-    console.print()
+def _import_type_ids_csv():
+    """Import type IDs from a CSV file in the data/ directory"""
+    while True:
+        clear_screen()
+        print_header()
 
-    # Preview first 10
-    if import_ids:
-        preview = import_ids[:10]
-        preview_str = ", ".join(str(x) for x in preview)
-        if len(import_ids) > 10:
-            preview_str += f" ... (+{len(import_ids) - 10} more)"
-        console.print(f"[hint]Preview: {preview_str}[/]")
+        csv_files = _scan_data_csvs()
+
+        console.print(Panel(
+            "[title]Import Type IDs from CSV[/]\n\n"
+            "Place a CSV file in the [value]data/[/] directory and select it below.\n"
+            "The file needs a column named one of:\n"
+            "[value]type_ids[/], [value]type_id[/], or [value]typeID[/]\n\n"
+            "[hint]You can choose to merge with or replace existing IDs.[/]",
+            box=ROUNDED,
+            border_style="info",
+        ))
         console.print()
 
-    current_ids = _load_type_ids()
-    existing_names = _load_type_names()
-    action = Prompt.ask(
-        "[key]Merge with existing or replace?[/]",
-        choices=["merge", "replace"],
-        default="merge",
-    )
+        if not csv_files:
+            console.print("[warning]No CSV files found in data/.[/]")
+            console.print("[hint]Drop a CSV file into the data/ folder, then select refresh.[/]")
+            console.print()
+            choice = Prompt.ask(
+                "[accent]Select an option[/]",
+                choices=["r", "R", "b", "B"],
+                show_choices=False,
+                default="b",
+            ).lower()
+            if choice == "r":
+                continue  # rescan
+            return
 
-    if action == "merge":
-        added = [tid for tid in import_ids if tid not in current_ids]
-        merged = current_ids + added
-        _save_type_ids(merged, existing_names)
-        console.print(f"[success]Merged: {len(added)} new items added ({len(merged)} total).[/]")
-    else:
-        _save_type_ids(import_ids, existing_names)
-        console.print(f"[success]Replaced: now tracking {len(import_ids)} items.[/]")
+        # List discovered files
+        file_table = Table(show_header=False, box=ROUNDED, border_style="accent", padding=(0, 1), expand=True)
+        file_table.add_column("Key", style="menu.number", width=4, justify="center")
+        file_table.add_column("File", style="value")
+        for i, fp in enumerate(csv_files, 1):
+            file_table.add_row(f"\\[{i}]", fp.name)
+        file_table.add_row("\\[r]", "[menu.item]Refresh list[/]")
+        file_table.add_row("\\[b]", "[menu.item]Back[/]")
+        console.print(file_table)
+        console.print()
 
-    Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+        valid = [str(i) for i in range(1, len(csv_files) + 1)] + ["r", "R", "b", "B"]
+        choice = Prompt.ask(
+            "[accent]Select a file[/]",
+            choices=valid,
+            show_choices=False,
+        ).lower()
+
+        if choice == "r":
+            continue  # rescan
+        if choice == "b":
+            return
+
+        path = csv_files[int(choice) - 1]
+        import_ids = _try_read_csv_type_ids(path)
+
+        if import_ids is None:
+            console.print(f"[error]No recognized type ID column in {path.name}[/]")
+            Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+            continue
+
+        console.print(f"\n[info]Found {len(import_ids)} type IDs in {path.name}[/]")
+
+        # Preview first 10
+        if import_ids:
+            preview = import_ids[:10]
+            preview_str = ", ".join(str(x) for x in preview)
+            if len(import_ids) > 10:
+                preview_str += f" ... (+{len(import_ids) - 10} more)"
+            console.print(f"[hint]Preview: {preview_str}[/]")
+        console.print()
+
+        current_ids = _load_type_ids()
+        existing_names = _load_type_names()
+        action = Prompt.ask(
+            "[key]Merge with existing or replace?[/]",
+            choices=["merge", "replace"],
+            default="merge",
+        )
+
+        if action == "merge":
+            added = [tid for tid in import_ids if tid not in current_ids]
+            merged = current_ids + added
+            _save_type_ids(merged, existing_names)
+            console.print(f"[success]Merged: {len(added)} new items added ({len(merged)} total).[/]")
+        else:
+            _save_type_ids(import_ids, existing_names)
+            console.print(f"[success]Replaced: now tracking {len(import_ids)} items.[/]")
+
+        Prompt.ask("\n[hint]Press Enter to continue[/]", default="")
+        return
 
 
 # -----------------------------------------------
@@ -1229,6 +1359,7 @@ def check_setup_needed() -> bool:
     """Check if initial setup is needed"""
     if not CONFIG_FILE.exists():
         return True
+
     if not ENV_FILE.exists():
         return True
 
