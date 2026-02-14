@@ -127,7 +127,7 @@ def save_config(config: dict[str, Any]):
     ua = config.get("user_agent", {})
     lines.append("[user_agent]")
     lines.append(f'app_name = "{ua.get("app_name", "ESI-Market-Tool")}"')
-    lines.append(f'app_version = "{ua.get("app_version", "0.2.0")}"')
+    lines.append(f'app_version = "{ua.get("app_version", "0.3.0")}"')
     lines.append(f'email = "{ua.get("email", "")}"')
     lines.append(f'discord = "{ua.get("discord", "")}"')
     lines.append(f'eve_character = "{ua.get("eve_character", "")}"')
@@ -280,7 +280,7 @@ def main_menu():
         elif choice == "0":
             reset_config()
         elif choice == "q":
-            console.print("\n[success]Setup complete![/] Run [highlight]uv run esi_markets.py[/] to start.\n")
+            console.print("\n[success]Setup complete![/] Run [highlight]uv run esi-market[/] to start.\n")
             break
 
 
@@ -432,7 +432,7 @@ def setup_user_agent():
     )
     app_version = Prompt.ask(
         "[key]App Version[/]",
-        default=ua.get("app_version", "0.2.0"),
+        default=ua.get("app_version", "0.3.0"),
     )
 
     config.setdefault("user_agent", {})
@@ -1141,7 +1141,7 @@ def view_config():
     ua_table.add_column("Key", style="key")
     ua_table.add_column("Value", style="value")
     ua_table.add_row("App Name", ua.get("app_name", "ESI-Market-Tool"))
-    ua_table.add_row("Version", ua.get("app_version", "0.2.0"))
+    ua_table.add_row("Version", ua.get("app_version", "0.3.0"))
     ua_table.add_row("Email", ua.get("email", "") or "[hint]Not set[/]")
     ua_table.add_row("Discord", ua.get("discord", "") or "[hint]Not set[/]")
     ua_table.add_row("Eve Character", ua.get("eve_character", "") or "[hint]Not set[/]")
@@ -1250,17 +1250,9 @@ def show_welcome():
     welcome_text.append("Welcome to ", style="white")
     welcome_text.append("ESI Market Tool", style="title")
     welcome_text.append("\n\n", style="white")
-    welcome_text.append("This setup wizard will help you configure the tool\n", style="hint")
-    welcome_text.append("for fetching Eve Online market data.\n\n", style="hint")
-    welcome_text.append("You'll need:\n", style="white")
-    welcome_text.append("  - Eve Developer Portal account\n", style="hint")
-    welcome_text.append("  - CLIENT_ID and SECRET_KEY from your ESI app\n", style="hint")
-    welcome_text.append("  - (Optional) Google Cloud credentials for Sheets\n", style="hint")
-    welcome_text.append("  - (Required) ESI Structure ID and Region ID\n", style="hint")
-    welcome_text.append("  - (Recommended) User-Agent information\n", style="hint")
-    welcome_text.append("  - (Optional) Rate Limiting settings\n", style="hint")
-    welcome_text.append("  - (Optional) Output directory\n", style="hint")
-    welcome_text.append("  - (Optional) Google Sheets settings\n", style="hint")
+    welcome_text.append("This wizard will walk you through everything\n", style="hint")
+    welcome_text.append("you need to start pulling Eve market data.\n\n", style="hint")
+    welcome_text.append("Don't worry — we'll take it step by step.\n", style="white")
 
     console.print(Panel(
         Align.center(welcome_text),

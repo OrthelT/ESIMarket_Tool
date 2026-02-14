@@ -1,5 +1,5 @@
 # ESI Structure Market Tools for Eve Online
-## Version 0.2.0
+## Version 0.3.0
 
 Tool for retrieving and analyzing data from Eve Online player-owned markets. Written in Python 3.11+.
 
@@ -22,9 +22,9 @@ Tool for retrieving and analyzing data from Eve Online player-owned markets. Wri
 
 ### Prerequisites
 - Python 3.11 or later
-- `uv` package manager (recommended) or pip (see advanced setup)
+- [`uv`](https://docs.astral.sh/uv/) package manager
 
-### Quick Install with uv (Recommended)
+### Install
 1. Install `uv` if you don't have it:
    ```bash
    # macOS/Linux
@@ -46,13 +46,10 @@ Tool for retrieving and analyzing data from Eve Online player-owned markets. Wri
     uv sync
 ```
 
-### Quick Setup (Recommended)
+### Setup
 Run the interactive setup wizard:
 ```bash
-uv run setup.py
-```
-```
-
+uv run esi-setup
 ```
 This will guide you through configuring:
 - Your Eve developers account. 
@@ -63,24 +60,15 @@ This will guide you through configuring:
 
 **Run a Market Query:**
 ```bash
-uv run esi_markets.py
+uv run esi-market
 ```
 
 ## Advanced Configuration
-### Alternative: pip installation
-1. Install Python 3.11 or later:
-   - Windows: Download from [python.org](https://www.python.org/downloads/)
-   - macOS: `brew install python@3.11` (using Homebrew)
-   - Linux: `sudo apt install python3.11` (Ubuntu/Debian)
 
-2. Create a virtual environment and install dependencies:
-   ```bash
-   python3 -m venv venv
-   # activate your virtual environment
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   pip install -e .
+### Manual Setup (Alternative to Setup Wizard)
 
-#### Manual Setup
+> **If you already ran `uv run esi-setup` above, you can skip this section.** The setup wizard handles all of the steps below automatically.
+
 1. Register through the Eve developer portal: https://developers.eveonline.com/
    - Create an application with scope: `esi-markets.structure_markets.v1`
    - Set callback URL (example: `http://localhost:8000/callback`)
@@ -233,8 +221,8 @@ See `config.toml.example` for full configuration options with detailed comments.
 
 ### Configuration Priority
 CLI flags override config.toml settings:
-1. **`--headless`** forces CSV output, no prompts, progress bars disabled
-2. **`-i` / `--interactive`** shows a menu for selecting sub-pipelines
+1. **`--headless`** runs the full pipeline with no prompts and progress bars disabled (required for cron)
+2. **`-i` / `--interactive`** explicitly selects interactive mode (this is already the default)
 3. **`--no-sheets`** disables Google Sheets regardless of config
 4. **`--output-dir`** overrides the configured output directory
 
@@ -243,9 +231,9 @@ Note: If Google Sheets update fails, the script will continue running and save d
 ## Usage
 
 ### Basic Usage
-Run the script interactively:
+Run the tool interactively:
 ```bash
-uv run python esi_markets.py
+uv run esi-market
 ```
 
 On first run, the script will:
@@ -259,26 +247,26 @@ The tool supports command-line flags for automation and scripting:
 
 ```bash
 # Headless mode (no prompts, for cron/scheduled runs)
-uv run python esi_markets.py --headless
+uv run esi-market --headless
 
-# Interactive mode (menu-driven sub-pipeline selection)
-uv run python esi_markets.py -i
+# Interactive mode (this is the default, flag is optional)
+uv run esi-market -i
 
 # Skip Google Sheets update (even if enabled in config)
-uv run python esi_markets.py --no-sheets
+uv run esi-market --no-sheets
 
 # Custom output directory
-uv run python esi_markets.py --output-dir ~/market-data
+uv run esi-market --output-dir ~/market-data
 
 # Combine flags for automation
-uv run python esi_markets.py --headless --no-sheets --output-dir /data/eve
+uv run esi-market --headless --no-sheets --output-dir /data/eve
 ```
 
 ### Running Modes
 
-1. **Default**: Full pipeline — fetches all market order pages, history, Jita prices, and exports
-2. **Interactive** (`-i`): Menu-driven mode with options to run the full pipeline, orders only, or history only
-3. **Headless** (`--headless`): Same as default but with progress bars disabled and no interactive prompts — ideal for cron/scheduled runs
+1. **Default (Interactive)**: Menu-driven mode with options to run the full pipeline, orders only, or history only. If config or credentials are missing, offers to launch the setup wizard.
+2. **Interactive** (`-i`): Same as default — the flag is kept for explicitness but is no longer required.
+3. **Headless** (`--headless`): Full pipeline with progress bars disabled and no interactive prompts. **Required** for cron/scheduled runs. Exits with an error if config is missing (no setup wizard prompt).
 
 ### Scheduled Execution
 
@@ -286,9 +274,11 @@ For automated data collection, see **`docs/SCHEDULING.md`** for detailed setup i
 - **Linux/macOS**: cron or systemd timers
 - **Windows**: Task Scheduler
 
-Example cron job (runs every 6 hours):
+> **Important:** The `--headless` flag is required for scheduled/automated runs. Without it the tool defaults to interactive mode and will wait for user input.
+
+Example cron job with logging (runs every 6 hours):
 ```cron
-0 */6 * * * cd /path/to/esi-market-tool && uv run python esi_markets.py --headless >> logs/cron.log 2>&1
+0 */6 * * * cd /path/to/esi-market-tool && uv run esi-market --headless >> logs/cron.log 2>&1
 ```
 
 ### ESI Endpoints Used
@@ -337,11 +327,11 @@ See `docs/refactoring_log.md` for detailed architecture decisions and `CLAUDE.md
 ## Troubleshooting
 
 **"Authentication failed. In headless mode, a valid token.json must exist."**
-- Run the tool interactively once to complete OAuth: `uv run python esi_markets.py`
+- Run the tool interactively once to complete OAuth: `uv run esi-market`
 - The OAuth token auto-refreshes, but initial auth requires browser interaction
 
 **Google Sheets update fails**
-- Run the setup wizard to verify configuration: `uv run python setup.py`
+- Run the setup wizard to verify configuration: `uv run esi-setup`
 - Check that the service account email has editor access to your spreadsheet
 - Verify `credentials_file` path in `config.toml` is correct
 - CSV files are still saved locally even if Sheets update fails

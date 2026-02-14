@@ -20,17 +20,17 @@ This project uses `uv` for dependency management:
 uv sync
 
 # Run interactive setup wizard (recommended for first-time setup)
-uv run python setup.py
+uv run esi-setup
 
 # Run the main application
-uv run python esi_markets.py
+uv run esi-market
 ```
 
 ### Setup Wizard
 The `setup.py` script provides a TUI for configuration:
 
 ```bash
-uv run python setup.py
+uv run esi-setup
 ```
 
 Features:
@@ -41,20 +41,20 @@ Features:
 - ESI connectivity test and full pipeline runner
 - Rate limiting and Google Sheets configuration
 
-When configuration is missing or invalid, running `esi_markets.py` will display a helpful message suggesting to run the setup wizard.
+When configuration is missing or invalid, the tool will offer to launch the setup wizard automatically (in interactive mode) or exit with a clear error (in headless mode).
 
 ### Running the Application
 The main entry point is `esi_markets.py` (delegates to `cli.py`):
 
 ```bash
 # Interactive mode (default) — Rich progress bars shown
-uv run python esi_markets.py
+uv run esi-market
 
 # Headless mode for cron/scheduled runs — progress bars disabled
-uv run python esi_markets.py --headless
+uv run esi-market --headless
 
 # Full automation: headless, no Google Sheets, custom output dir
-uv run python esi_markets.py --headless --no-sheets --output-dir ~/market-data
+uv run esi-market --headless --no-sheets --output-dir ~/market-data
 ```
 
 On first run, it will:
@@ -160,7 +160,7 @@ region_id = 10000003  # Vale of the Silent (for history)
 
 [user_agent]
 app_name = "ESI-Market-Tool"
-app_version = "0.2.0"
+app_version = "0.3.0"
 email = ""           # CCP recommends identifying your app
 discord = ""
 eve_character = ""

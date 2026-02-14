@@ -28,7 +28,7 @@ class LoggingConfig:
 @dataclass(frozen=True)
 class UserAgentConfig:
     app_name: str = "ESI-Market-Tool"
-    app_version: str = "0.2.0"
+    app_version: str = "0.3.0"
     email: str = ""
     discord: str = ""
     eve_character: str = ""
@@ -134,7 +134,7 @@ def print_setup_hint() -> None:
     print("  CONFIGURATION REQUIRED")
     print("=" * 60)
     print("\n  Run the setup wizard to configure the tool:\n")
-    print("    uv run python setup.py")
+    print("    uv run esi-setup")
     print("\n  Or manually create/edit config.toml and .env files.")
     print("  See README.md for detailed instructions.")
     print("=" * 60 + "\n")

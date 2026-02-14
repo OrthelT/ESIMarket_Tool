@@ -4,14 +4,14 @@ Run the tool automatically on a schedule using `--headless` mode.
 
 ## Prerequisites
 
-1. Complete initial setup: `uv run python setup.py`
+1. Complete initial setup: `uv run esi-setup`
 2. Run the tool interactively once to create `token.json` (OAuth token):
    ```bash
-   uv run python esi_markets.py
+   uv run esi-market
    ```
 3. Verify headless mode works:
    ```bash
-   uv run python esi_markets.py --headless --no-sheets
+   uv run esi-market --headless --no-sheets
    ```
 
 The OAuth token auto-refreshes, so once `token.json` exists, headless runs will
@@ -27,17 +27,17 @@ crontab -e
 
 Run every 6 hours:
 ```cron
-0 */6 * * * cd /path/to/esi-market-tool && uv run python esi_markets.py --headless >> logs/cron.log 2>&1
+0 */6 * * * cd /path/to/esi-market-tool && uv run esi-market --headless >> logs/cron.log 2>&1
 ```
 
 Run daily at 08:00 UTC, skip Google Sheets:
 ```cron
-0 8 * * * cd /path/to/esi-market-tool && uv run python esi_markets.py --headless --no-sheets >> logs/cron.log 2>&1
+0 8 * * * cd /path/to/esi-market-tool && uv run esi-market --headless --no-sheets >> logs/cron.log 2>&1
 ```
 
 Run with a custom output directory:
 ```cron
-0 12 * * * cd /path/to/esi-market-tool && uv run python esi_markets.py --headless --output-dir ~/market-data >> logs/cron.log 2>&1
+0 12 * * * cd /path/to/esi-market-tool && uv run esi-market --headless --output-dir ~/market-data >> logs/cron.log 2>&1
 ```
 
 ## Linux (systemd timer)
@@ -79,28 +79,26 @@ systemctl --user enable --now esi-market.timer
    - **Trigger:** Daily (or your preferred schedule)
    - **Action:** Start a program
    - **Program:** `cmd.exe`
-   - **Arguments:** `/c cd /d C:\path\to\esi-market-tool && uv run python esi_markets.py --headless`
+   - **Arguments:** `/c cd /d C:\path\to\esi-market-tool && uv run esi-market --headless`
    - **Start in:** `C:\path\to\esi-market-tool`
 
 ## CLI Flags Reference
 
 | Flag | Description |
 |------|-------------|
-| `--headless` | No prompts, standard mode, always save CSV |
-| `--mode test` | Use test mode (3 pages only) |
-| `--mode standard` | Use standard mode (all pages) |
+| `--headless` | No prompts, full pipeline, always save CSV |
 | `--output-dir PATH` | Override output directory |
 | `--no-sheets` | Skip Google Sheets update |
 
 Flags can be combined:
 ```bash
-uv run python esi_markets.py --headless --no-sheets --output-dir /data/eve
+uv run esi-market --headless --no-sheets --output-dir /data/eve
 ```
 
 ## Troubleshooting
 
 **"Authentication failed. In headless mode, a valid token.json must exist."**
-Run the tool interactively once to complete OAuth: `uv run python esi_markets.py`
+Run the tool interactively once to complete OAuth: `uv run esi-market`
 
 **Token refresh fails**
 Delete `token.json` and run interactively to re-authorize.

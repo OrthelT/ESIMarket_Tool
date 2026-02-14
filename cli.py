@@ -39,10 +39,44 @@ logger: logging.Logger | None = None
 console = Console()
 
 
+def _handle_config_error(error: ConfigurationError, headless: bool) -> None:
+    """Handle missing/invalid config: offer setup wizard or exit."""
+    if headless:
+        console.print(f"\n[red]Configuration error:[/] {error}")
+        console.print("Run interactively first to configure: uv run esi-market")
+        sys.exit(1)
+    console.print()
+    console.print(Panel(
+        "[bold]Welcome to ESI Market Tool![/bold]\n\n"
+        "  Looks like this is your first run.\n"
+        "  Let's get you set up.",
+        border_style="blue",
+    ))
+    console.print()
+    launch = Prompt.ask(
+        "Launch the setup wizard?",
+        choices=["y", "n"],
+        default="y",
+    )
+    if launch == "y":
+        import subprocess
+        subprocess.run([sys.executable, "setup.py"])
+    sys.exit(0)
+
+
+def _check_credentials(client_id: str | None, secret_key: str | None, headless: bool) -> None:
+    """Guard against None credentials after loading .env."""
+    if not client_id or not secret_key:
+        error = ConfigurationError(
+            "EVE API credentials (CLIENT_ID / SECRET_KEY) are missing or empty in .env file."
+        )
+        _handle_config_error(error, headless)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        prog='mktstatus',
+        prog='esi-market',
         description='ESI Structure Market Tools for Eve Online',
     )
     parser.add_argument(
@@ -188,8 +222,7 @@ async def run(args: argparse.Namespace) -> None:
         config = load_config()
         check_env_file(config.project_root)
     except ConfigurationError as e:
-        print(f"\nError: {e}")
-        sys.exit(1)
+        _handle_config_error(e, args.headless)
 
     # 2. Setup logging
     logger = setup_logging(
@@ -212,6 +245,7 @@ async def run(args: argparse.Namespace) -> None:
     load_dotenv(dotenv_path=config.project_root / '.env')
     client_id = os.getenv('CLIENT_ID')
     secret_key = os.getenv('SECRET_KEY')
+    _check_credentials(client_id, secret_key, args.headless)
 
     # 4. Output directory (CLI flag > config > default)
     if args.output_dir:
@@ -233,7 +267,7 @@ async def run(args: argparse.Namespace) -> None:
     )
     if token is None:
         print("\nError: Authentication failed. In headless mode, a valid token.json must exist.")
-        print("Run interactively first: uv run python esi_markets.py")
+        print("Run interactively first: uv run esi-market")
         sys.exit(1)
 
     rate_limiter = TokenBucketRateLimiter(
@@ -300,7 +334,7 @@ async def run(args: argparse.Namespace) -> None:
         creds_path = config.resolve_path(config.google_sheets.credentials_file)
         if not creds_path.exists():
             logger.warning(f"Google Sheets credentials not found: {creds_path}")
-            print("Google Sheets is enabled but not configured. Run 'uv run python setup.py' to set up credentials.")
+            print("Google Sheets is enabled but not configured. Run 'uv run esi-setup' to set up credentials.")
         else:
             try:
                 logger.info("Updating Google Sheets...")
@@ -344,8 +378,7 @@ async def _interactive_run(args: argparse.Namespace) -> None:
         config = load_config()
         check_env_file(config.project_root)
     except ConfigurationError as e:
-        print(f"\nError: {e}")
-        sys.exit(1)
+        _handle_config_error(e, headless=False)
 
     # 2. Setup logging
     logger = setup_logging(
@@ -423,6 +456,7 @@ async def _interactive_run(args: argparse.Namespace) -> None:
         load_dotenv(dotenv_path=config.project_root / '.env')
         client_id = os.getenv('CLIENT_ID')
         secret_key = os.getenv('SECRET_KEY')
+        _check_credentials(client_id, secret_key, headless=False)
 
         SCOPE = ['esi-markets.structure_markets.v1']
         from ESI_OAUTH_FLOW import get_token
@@ -549,10 +583,10 @@ async def _interactive_run(args: argparse.Namespace) -> None:
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
     args = parse_args(argv)
-    if args.interactive:
-        asyncio.run(_interactive_run(args))
-    else:
+    if args.headless:
         asyncio.run(run(args))
+    else:
+        asyncio.run(_interactive_run(args))
 
 
 if __name__ == '__main__':

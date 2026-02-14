@@ -7,7 +7,7 @@
 # but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 # See the GNU General Public License for more details. <https://www.gnu.org/licenses/>.
 #
-# ESI Structure Market Tools for Eve Online VERSION 0.2
+# ESI Structure Market Tools for Eve Online VERSION 0.3
 # Contact orthel_toralen on Discord with questions.
 
 from cli import main

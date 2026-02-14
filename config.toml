@@ -29,8 +29,8 @@ cache_file = "data/history_cache.json"
 
 [google_sheets]
 enabled = false
-credentials_file = 
-workbook_id = 
+credentials_file = ""
+workbook_id = ""
 
 [google_sheets.worksheets]
 market_stats = "market_stats"
