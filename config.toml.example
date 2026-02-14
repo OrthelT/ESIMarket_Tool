@@ -1,9 +1,6 @@
 # ESI Market Tool Configuration
 # Opinionated defaults for immediate use - customize as needed
-
-[mode]
-# Interactive prompts on startup (recommended for first-time users)
-prompt_config_mode = true
+# Run `uv run esi-setup` for interactive configuration
 
 [esi]
 # Structure to monitor: 4-HWWF Keepstar in Vale of the Silent
@@ -14,17 +11,32 @@ structure_id = 1035466617946
 # Common alternatives: The Forge/Jita (10000002), Domain/Amarr (10000043)
 region_id = 10000003
 
+[user_agent]
+# CCP strongly recommends identifying your app in ESI requests
+# At minimum, provide an email or Discord handle so they can reach you
+app_name = "ESI-Market-Tool"
+app_version = "0.3.0"
+email = ""
+discord = ""
+eve_character = ""
+source_url = ""
+
 [logging]
 # Verbose console output recommended for monitoring progress
 verbose_console_logging = true
 
 [rate_limiting]
-# Conservative defaults to stay well under ESI rate limits
-# Market orders: 0.1s = ~10 req/sec, well under 150 req/sec limit
-market_orders_wait_time = 0.1
+# Token bucket rate limiter settings
+burst_size = 10              # Max requests allowed in a quick burst
+tokens_per_second = 5.0      # Steady-state request rate
+max_retries = 5              # Per-request retry limit
+retry_delay = 3.0            # Initial retry delay (seconds)
+retry_backoff_factor = 2.0   # Exponential backoff multiplier
 
-# Market history: 0.3s = ~200 req/min, safely under 300 req/min limit
-market_history_wait_time = 0.3
+[caching]
+# Conditional request caching (ETag/Last-Modified) to reduce ESI load
+enabled = true
+cache_file = "data/history_cache.json"
 
 [google_sheets]
 # Disabled by default - enable after completing Google Cloud setup
@@ -54,6 +66,5 @@ jita_prices = "output/latest/jita_prices.csv"
 market_history = "output/latest/markethistory_latest.csv"
 
 [paths.data]
-# Input data files containing item type IDs to track
-type_ids = "data/type_ids.csv"          # Full production list
-type_ids_test = "data/type_ids_test.csv"  # Small test subset
+# Input data file containing item type IDs to track
+type_ids = "data/type_ids.csv"

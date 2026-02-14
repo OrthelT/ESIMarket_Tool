@@ -1342,13 +1342,57 @@ def reset_config():
     console.print()
 
     if Confirm.ask("[warning]Are you sure you want to reset?[/]", default=False):
-        if CONFIG_EXAMPLE.exists():
-            # Copy from example
-            import shutil
-            shutil.copy(CONFIG_EXAMPLE, CONFIG_FILE)
-            console.print("\n[success]Configuration reset to defaults![/]")
-        else:
-            console.print("\n[error]config.toml.example not found![/]")
+        default_config = {
+            "esi": {
+                "structure_id": 1035466617946,
+                "region_id": 10000003,
+            },
+            "user_agent": {
+                "app_name": "ESI-Market-Tool",
+                "app_version": "0.3.0",
+                "email": "",
+                "discord": "",
+                "eve_character": "",
+                "source_url": "",
+            },
+            "logging": {
+                "verbose_console_logging": True,
+            },
+            "rate_limiting": {
+                "burst_size": 10,
+                "tokens_per_second": 5.0,
+                "max_retries": 5,
+                "retry_delay": 3.0,
+                "retry_backoff_factor": 2.0,
+            },
+            "caching": {
+                "enabled": True,
+                "cache_file": "data/history_cache.json",
+            },
+            "google_sheets": {
+                "enabled": False,
+                "credentials_file": "google_credentials.json",
+                "workbook_id": "",
+                "worksheets": {
+                    "market_stats": "market_stats",
+                    "jita_prices": "jita_prices",
+                    "market_history": "market_history",
+                },
+            },
+            "paths": {
+                "output_dir": "output",
+                "csv": {
+                    "market_stats": "output/latest/marketstats_latest.csv",
+                    "jita_prices": "output/latest/jita_prices.csv",
+                    "market_history": "output/latest/markethistory_latest.csv",
+                },
+                "data": {
+                    "type_ids": "data/type_ids.csv",
+                },
+            },
+        }
+        save_config(default_config)
+        console.print("\n[success]Configuration reset to defaults![/]")
     else:
         console.print("\n[info]Reset cancelled.[/]")
 
