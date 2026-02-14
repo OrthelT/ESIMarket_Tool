@@ -81,12 +81,14 @@ class ESIClient:
         self,
         structure_id: int,
         progress: Progress | None = None,
+        task_id: int | None = None,
     ) -> FetchResult:
         """Fetch all market orders from a structure.
 
         Args:
             structure_id: The structure to fetch orders from
             progress: Optional Rich Progress instance for progress display
+            task_id: Optional pre-created task ID (skips add_task if provided)
 
         Returns:
             FetchResult with orders data and fetch statistics
@@ -98,7 +100,8 @@ class ESIClient:
         total_pages = 1
         retries = 0
         result = FetchResult()
-        task_id = progress.add_task("Market orders", total=None) if progress else None
+        if progress and task_id is None:
+            task_id = progress.add_task("Market orders", total=None)
 
         logger.info("Fetching market orders...")
 
@@ -177,6 +180,7 @@ class ESIClient:
         progress: Progress | None = None,
         type_names: dict[int, str] | None = None,
         on_item: Callable[[str], None] | None = None,
+        task_id: int | None = None,
     ) -> FetchResult:
         """Fetch market history for a list of type IDs.
 
@@ -189,6 +193,7 @@ class ESIClient:
             type_ids: List of item type IDs to fetch history for
             progress: Optional Rich Progress instance for progress display
             type_names: Optional dict mapping type_id -> name for progress display
+            task_id: Optional pre-created task ID (skips add_task if provided)
 
         Returns:
             FetchResult with history data and fetch statistics
@@ -205,7 +210,8 @@ class ESIClient:
         result = FetchResult()
         retries = 0
         items_processed = 0
-        task_id = progress.add_task("Market history", total=item_count) if progress else None
+        if progress and task_id is None:
+            task_id = progress.add_task("Market history", total=item_count)
 
         for item in type_ids:
             items_processed += 1

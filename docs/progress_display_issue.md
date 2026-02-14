@@ -38,7 +38,7 @@ Contributing factors:
   `progress.add_task("Market history", ...)` during the history fetch phase.
   Live cannot cleanly erase and re-render when the renderable height increases.
 
-## What Was Tried
+## What Was Tried (and failed)
 
 ### Approach 1: Custom `Live` wrapper (`MarketProgressDisplay`)
 - Created a custom class wrapping `Progress` + `Text` in a `Panel`, managed by
@@ -57,67 +57,72 @@ Contributing factors:
 ### Approach 3: Fixed-height padding in `get_renderable()`
 - Added filler `Text(" ")` lines to pad the panel to a minimum height
   (`min_rows=2`), so it never grows when the second task appears.
-- **Result:** Untested live — static renders show correct equal-height panels,
-  but the approach may still fail if Live's cursor tracking is fundamentally
-  broken by logger output.
+- **Result:** Still produces overlapping panels in live terminal rendering.
 
-## Current State (as of 2026-02-14)
+### Approach 4: Composition with explicit `Live` (without concurrent fetches)
+- `MarketProgress` no longer subclasses `Progress` — holds an inner `Progress`
+  as a pure state tracker, managed by an explicit `Live` instance.
+- Implements `__rich__()` so Live re-renders the Panel dynamically each cycle.
+- **Result:** Still produces ghost panels. The fundamental issue was that tasks
+  were added sequentially (orders first, history second), so the panel height
+  changed mid-display regardless of how Live was managed.
 
-The code currently uses **Approach 2 + 3** (subclassed Progress with fixed-height
-padding). Files involved:
+## Resolution (2026-02-14)
 
-- **`progress_display.py`** — `MarketProgress(Progress)` subclass
-- **`esi_client.py`** — `fetch_market_history()` accepts `on_item` callback for
-  status line updates (item names no longer embedded in progress description)
-- **`cli.py`** — Uses `MarketProgress` with `with progress:` context manager
+**Fixed** by combining composition-based display with **concurrent fetches** and
+**pre-created tasks**. This eliminates panel height changes entirely.
 
-## Recommended Next Steps
+### The two-part fix
 
-### 1. Study Rich Live documentation and examples
-- Rich Live docs: https://rich.readthedocs.io/en/latest/live.html
-- Reference example: `live-progress-example` (user-provided, exact path TBD)
-- Key question: does Rich's `Live` class need to be used explicitly (rather than
-  relying on Progress's built-in Live) to properly handle composed layouts like
-  `Panel(Group(Progress, Text))`?
+#### Part 1: Composition over inheritance (`progress_display.py`)
+`MarketProgress` no longer subclasses `Progress`. Instead it:
+1. **Composes** a `Progress` instance (pure task state tracker, never started)
+2. **Manages** an explicit `Live` instance (owns the display lifecycle)
+3. **Implements** `__rich__()` so Live re-renders the Panel from current state
+4. **Duck-types** as Progress — provides `add_task()` and `update()` methods
 
-### 2. Consider using `Live` directly with `Progress` as a renderable
-The Rich docs may show a pattern where:
+This follows the pattern from `live-progress-examp.py` (Rich's own example):
+`Progress` is used as a renderable inside `Live`, never as a context manager.
+
+#### Part 2: Pre-create tasks + concurrent fetches (`cli.py`)
+Instead of creating tasks inside `esi_client.py` fetch methods (which causes
+the panel to grow mid-display), tasks are now:
+1. **Pre-created** in `cli.py` before `with progress:` starts the Live display
+2. **Passed** to `esi_client.py` via the new `task_id` parameter
+3. **Updated concurrently** via `asyncio.gather()` — both fetches run in parallel
+
 ```python
-from rich.live import Live
-from rich.progress import Progress
-from rich.panel import Panel
-from rich.console import Group
+# Pre-create both tasks — panel starts at full height
+orders_task = progress.add_task("Market orders", total=None)
+history_task = progress.add_task("Market history", total=len(type_ids))
 
-progress = Progress(...)
-status = Text("")
-
-with Live(Panel(Group(progress, status)), refresh_per_second=10) as live:
-    # Update progress and status; Live re-renders the composed layout
-    ...
-```
-
-In this pattern, `Progress` is NOT used as a context manager (no `with progress:`).
-Instead, `Live` manages the display, and `Progress` is just a renderable whose
-internal state changes. This may handle height changes differently than Progress's
-own built-in Live.
-
-### 3. Consider pre-creating all tasks upfront
-If the panel height must stay fixed, pre-create both tasks at the start:
-```python
 with progress:
-    orders_task = progress.add_task("Market orders", total=None)
-    history_task = progress.add_task("Market history", total=None, start=False)
-    # Both rows visible from frame 1 — panel never grows
+    # Run both fetches concurrently — they share the rate limiter
+    (market_orders, mkt_time), (historical_df, hist_time, history_result) = (
+        await asyncio.gather(
+            _fetch_and_export_orders(..., task_id=orders_task),
+            _fetch_and_export_history(..., task_id=history_task),
+        )
+    )
 ```
-This requires `esi_client.py` methods to accept optional pre-created `task_id`
-parameters instead of always calling `progress.add_task()` internally.
 
-### 4. Investigate logger interference
-Even with `redirect_stderr=True`, the logging StreamHandler may still cause
-issues. Consider:
-- Temporarily disabling console log handlers during the Live display
-- Using Rich's `RichHandler` for logging (integrates with Console/Live)
-- Checking if `verbose_console_logging = false` in config.toml resolves it
+### Why it works
+- **No height change** — Both task rows exist from the first frame. The panel
+  never grows, so Live's cursor tracking is never challenged.
+- **Explicit Live** — `Live(self, ...)` where `self.__rich__()` rebuilds the
+  Panel each cycle. Live owns the full display from the start.
+- **`redirect_stderr=True`** — Logger output from `StreamHandler` is intercepted
+  and rendered above the panel, keeping cursor tracking intact.
+- **Concurrent performance** — Wall-clock time is now `max(orders, history)`
+  instead of `orders + history`. Both coroutines share the `TokenBucketRateLimiter`
+  naturally via its `asyncio.Lock`.
+
+### Files changed
+- **`progress_display.py`** — Composition wrapper with `__rich__()` and explicit `Live`
+- **`esi_client.py`** — Added `task_id` parameter to `fetch_market_orders()` and
+  `fetch_market_history()` (falls back to creating tasks if not provided)
+- **`cli.py`** — Pre-creates tasks, loads type_ids before progress display,
+  runs orders + history concurrently via `asyncio.gather()`
 
 ## Architecture Notes
 
@@ -128,5 +133,12 @@ The progress display touches three layers:
 
 The `on_item: Callable[[str], None]` callback in `esi_client.py` is a clean
 decoupling — the ESI client doesn't know about Panels or Live, it just calls a
-function with the current item name. This pattern should be preserved regardless
-of which display approach is used.
+function with the current item name.
+
+### Key design decisions
+- **Tasks pre-created in `cli.py`**, not inside `esi_client.py` — the CLI layer
+  knows the full layout, ESI methods just update progress on provided task IDs.
+- **`task_id` is optional** — if not provided, fetch methods fall back to
+  creating their own task (backward compatible for single-fetch usage).
+- **Type IDs loaded before progress** — moved `_load_type_ids_and_names_async()`
+  before `with progress:` since we need `len(type_ids)` to size the history task.

@@ -163,11 +163,13 @@ async def _fetch_and_export_orders(
     progress: Progress | None,
     output_dir: Path,
     latest_dir: Path,
+    task_id: int | None = None,
 ) -> tuple[list[dict], float]:
     """Fetch market orders, save CSV. Returns (orders_data, elapsed_seconds)."""
     orders_result = await esi.fetch_market_orders(
         structure_id=config.esi.structure_id,
         progress=progress,
+        task_id=task_id,
     )
 
     market_orders = orders_result.data
@@ -189,6 +191,7 @@ async def _fetch_and_export_history(
     latest_dir: Path,
     history_cache: HistoryCache | None,
     on_item: Callable[[str], None] | None = None,
+    task_id: int | None = None,
 ) -> tuple[pd.DataFrame, float, 'FetchResult']:
     """Fetch market history, save CSV. Returns (history_df, elapsed_seconds, result)."""
     from esi_client import FetchResult  # noqa: F811
@@ -199,6 +202,7 @@ async def _fetch_and_export_history(
         progress=progress,
         type_names=type_names,
         on_item=on_item,
+        task_id=task_id,
     )
     historical_df = pd.DataFrame(history_result.data)
     hist_time = history_result.elapsed_seconds
@@ -289,25 +293,30 @@ async def run(args: argparse.Namespace) -> None:
         start_time = datetime.now()
         logger.info(f"Run started at {start_time}")
 
+        # Load type IDs before progress display (needed to size history task)
+        type_ids, type_names = await _load_type_ids_and_names_async(config, esi)
+
+        # Pre-create both tasks so the panel starts at full height
+        orders_task = progress.add_task("Market orders", total=None)
+        history_task = progress.add_task("Market history", total=len(type_ids))
+
+        def _on_item(name: str) -> None:
+            progress.status = f"  \u25b6 {name}"
+
         with progress:
-            # Fetch market orders
-            market_orders, mkt_time = await _fetch_and_export_orders(
-                esi, config, progress, output_dir, latest_dir,
-            )
-
-            # Read type IDs and resolve names
-            progress.status = "  Resolving item names..."
-            type_ids, type_names = await _load_type_ids_and_names_async(config, esi)
-            progress.status = ""
-
-            # Fetch market history
-            def _on_item(name: str) -> None:
-                progress.status = f"  \u25b6 {name}"
-
-            historical_df, hist_time, history_result = await _fetch_and_export_history(
-                esi, config, progress, type_ids, type_names,
-                output_dir, latest_dir, history_cache,
-                on_item=_on_item,
+            # Run both fetches concurrently — they share the rate limiter
+            (market_orders, mkt_time), (historical_df, hist_time, history_result) = (
+                await asyncio.gather(
+                    _fetch_and_export_orders(
+                        esi, config, progress, output_dir, latest_dir,
+                        task_id=orders_task,
+                    ),
+                    _fetch_and_export_history(
+                        esi, config, progress, type_ids, type_names,
+                        output_dir, latest_dir, history_cache,
+                        on_item=_on_item, task_id=history_task,
+                    ),
+                )
             )
 
         # Process data
@@ -498,18 +507,24 @@ async def _interactive_run(args: argparse.Namespace) -> None:
                 progress.status = f"  \u25b6 {name}"
 
             if choice == "1":
-                # Full pipeline
+                # Full pipeline — pre-create tasks, run both fetches concurrently
+                type_ids, type_names = await _load_type_ids_and_names_async(config, esi)
+                orders_task = progress.add_task("Market orders", total=None)
+                history_task = progress.add_task("Market history", total=len(type_ids))
+
                 with progress:
-                    market_orders, mkt_time = await _fetch_and_export_orders(
-                        esi, config, progress, output_dir, latest_dir,
-                    )
-                    progress.status = "  Resolving item names..."
-                    type_ids, type_names = await _load_type_ids_and_names_async(config, esi)
-                    progress.status = ""
-                    historical_df, hist_time, history_result = await _fetch_and_export_history(
-                        esi, config, progress, type_ids, type_names,
-                        output_dir, latest_dir, history_cache,
-                        on_item=_on_item,
+                    (market_orders, mkt_time), (historical_df, hist_time, history_result) = (
+                        await asyncio.gather(
+                            _fetch_and_export_orders(
+                                esi, config, progress, output_dir, latest_dir,
+                                task_id=orders_task,
+                            ),
+                            _fetch_and_export_history(
+                                esi, config, progress, type_ids, type_names,
+                                output_dir, latest_dir, history_cache,
+                                on_item=_on_item, task_id=history_task,
+                            ),
+                        )
                     )
 
                 orders_df = pd.DataFrame(market_orders)
@@ -544,9 +559,11 @@ async def _interactive_run(args: argparse.Namespace) -> None:
 
             elif choice == "2":
                 # Orders only
+                orders_task = progress.add_task("Market orders", total=None)
                 with progress:
                     market_orders, mkt_time = await _fetch_and_export_orders(
                         esi, config, progress, output_dir, latest_dir,
+                        task_id=orders_task,
                     )
                 src_folder = str(output_dir)
                 latest_folder = str(latest_dir)
@@ -558,14 +575,13 @@ async def _interactive_run(args: argparse.Namespace) -> None:
 
             elif choice == "3":
                 # History only
+                type_ids, type_names = await _load_type_ids_and_names_async(config, esi)
+                history_task = progress.add_task("Market history", total=len(type_ids))
                 with progress:
-                    progress.status = "  Resolving item names..."
-                    type_ids, type_names = await _load_type_ids_and_names_async(config, esi)
-                    progress.status = ""
                     historical_df, hist_time, history_result = await _fetch_and_export_history(
                         esi, config, progress, type_ids, type_names,
                         output_dir, latest_dir, history_cache,
-                        on_item=_on_item,
+                        on_item=_on_item, task_id=history_task,
                     )
                 src_folder = str(output_dir)
                 latest_folder = str(latest_dir)

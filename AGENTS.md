@@ -82,6 +82,7 @@ On first run, it will:
 - argparse CLI with `--headless`, `-i`/`--interactive`, `--output-dir`, `--no-sheets`
 - `async def run()` coordinates entire pipeline, called via `asyncio.run()`
 - `async def _interactive_run()` provides menu-driven sub-pipeline selection (orders only, history only, or full)
+- Market orders and history fetch run **concurrently** via `asyncio.gather()` — tasks are pre-created before `with progress:` starts the Live display
 - Rich progress bars with `disable=args.headless` for silent scheduled execution
 - Creates `TokenBucketRateLimiter` from config, injects into `ESIClient`
 - Supports scheduled/headless execution via cron (see `docs/SCHEDULING.md`)
@@ -95,8 +96,8 @@ On first run, it will:
 **esi_client.py** - Async ESI HTTP client
 - `ESIClient` is an async context manager (`__aenter__`/`__aexit__`) managing an `aiohttp.ClientSession`
 - Accepts `TokenBucketRateLimiter` via dependency injection
-- `fetch_market_orders()` — async paginated fetch with Rich progress, dynamic total from `X-Pages` header
-- `fetch_market_history()` — async per-item fetch with configurable retries and exponential backoff
+- `fetch_market_orders()` — async paginated fetch with Rich progress, dynamic total from `X-Pages` header; accepts optional `task_id` for pre-created progress tasks
+- `fetch_market_history()` — async per-item fetch with configurable retries and exponential backoff; accepts optional `task_id` for pre-created progress tasks
 - `fetch_sde_names()` — instance method, resolves type IDs to names via ESI `/universe/names/`
 - `test_connectivity()` — quick single-page fetch for setup.py connectivity check
 - All methods use `content_type=None` on `response.json()` for ESI compatibility
@@ -121,6 +122,12 @@ On first run, it will:
 **export.py** - File I/O and Google Sheets
 - CSV writing: `save_orders_csv()`, `save_history_csv()`, `save_stats_csv()`, `save_jita_csv()`
 - `update_all_google_sheets(config)` with single `_update_worksheet()` helper
+
+**progress_display.py** - Rich progress display
+- `MarketProgress` — composes a `Progress` (task tracker) with an explicit `Live` (display manager) inside a styled `Panel`
+- Implements `__rich__()` so Live re-renders the Panel from current state each refresh cycle
+- Duck-types as `Progress` (provides `add_task()`, `update()`) so `esi_client.py` can use it transparently
+- **Important:** Tasks must be pre-created before `with progress:` starts the Live display — adding tasks mid-display causes ghost panel artifacts. See `docs/progress_display_issue.md` for the full debugging history.
 
 **esi_markets.py** - Thin entry point
 - Delegates to `cli.main()` — preserves `pyproject.toml` entry point
@@ -225,8 +232,10 @@ output/
 
 ### ESI Rate Limiting
 
+**Note:** As of early 2026, ESI market endpoints do not enforce token bucket rate limiting. CCP has indicated this will be implemented in the coming months, so the token bucket is included proactively to be ready when it lands.
+
 Rate limiting uses a two-layer approach:
-1. **Token bucket** (`rate_limiter.py`): Proactive rate control — configurable `burst_size` and `tokens_per_second` via `config.toml`. Smooths request rate without hard sleeps.
+1. **Token bucket** (`rate_limiter.py`): Proactive rate control — configurable `burst_size` and `tokens_per_second` via `config.toml`. Smooths request rate without hard sleeps. Not yet enforced by ESI but included for forward compatibility.
 2. **ESI error headers**: Reactive safety net — monitors `X-ESI-Error-Limit-Remain` header, pauses or stops if error budget is nearly exhausted.
 
 Retries use exponential backoff: `retry_delay * (retry_backoff_factor ** attempt)`, up to `max_retries` attempts per request.
@@ -259,7 +268,8 @@ Follow the pattern in `fetch_market_orders()`:
 5. Use `await response.json(content_type=None)` for ESI compatibility
 6. Monitor `X-ESI-Error-Limit-Remain` header as safety net
 7. Implement retry with exponential backoff on failure
-8. Accept optional `progress: Progress | None` for Rich progress display
+8. Accept optional `progress: Progress | None` and `task_id: int | None` for Rich progress display
+9. **Progress gotcha:** If the new endpoint will run alongside other fetch methods in `asyncio.gather()`, the caller must pre-create the progress task and pass `task_id`. Do NOT call `progress.add_task()` inside the fetch method while Live is running — this causes ghost panel artifacts. See `docs/progress_display_issue.md`.
 
 ### Modifying Data Processing
 Data flows through pandas DataFrames:
