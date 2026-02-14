@@ -7,20 +7,20 @@ Supports interactive mode (-i), headless mode (--headless), and default pipeline
 import argparse
 import asyncio
 import csv as csv_mod
+import logging
 import os
 import sys
-import logging
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
-
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import Progress
 from rich.prompt import Prompt
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
 
 from cache import HistoryCache
 from config import load_config, check_env_file, ConfigurationError, AppConfig
@@ -34,6 +34,7 @@ from export import (
 from get_jita_prices import get_jita_prices
 from file_cleanup import rename_move_and_archive_csv
 from logging_utils import setup_logging
+from progress_display import MarketProgress
 
 logger: logging.Logger | None = None
 console = Console()
@@ -159,16 +160,15 @@ async def _load_type_ids_and_names_async(
 async def _fetch_and_export_orders(
     esi: ESIClient,
     config: AppConfig,
-    progress: Progress,
+    progress: Progress | None,
     output_dir: Path,
     latest_dir: Path,
 ) -> tuple[list[dict], float]:
     """Fetch market orders, save CSV. Returns (orders_data, elapsed_seconds)."""
-    with progress:
-        orders_result = await esi.fetch_market_orders(
-            structure_id=config.esi.structure_id,
-            progress=progress,
-        )
+    orders_result = await esi.fetch_market_orders(
+        structure_id=config.esi.structure_id,
+        progress=progress,
+    )
 
     market_orders = orders_result.data
     mkt_time = orders_result.elapsed_seconds
@@ -182,23 +182,24 @@ async def _fetch_and_export_orders(
 async def _fetch_and_export_history(
     esi: ESIClient,
     config: AppConfig,
-    progress: Progress,
+    progress: Progress | None,
     type_ids: list[int],
     type_names: dict[int, str],
     output_dir: Path,
     latest_dir: Path,
     history_cache: HistoryCache | None,
+    on_item: Callable[[str], None] | None = None,
 ) -> tuple[pd.DataFrame, float, 'FetchResult']:
     """Fetch market history, save CSV. Returns (history_df, elapsed_seconds, result)."""
     from esi_client import FetchResult  # noqa: F811
 
-    with progress:
-        history_result = await esi.fetch_market_history(
-            region_id=config.esi.region_id,
-            type_ids=type_ids,
-            progress=progress,
-            type_names=type_names,
-        )
+    history_result = await esi.fetch_market_history(
+        region_id=config.esi.region_id,
+        type_ids=type_ids,
+        progress=progress,
+        type_names=type_names,
+        on_item=on_item,
+    )
     historical_df = pd.DataFrame(history_result.data)
     hist_time = history_result.elapsed_seconds
 
@@ -282,32 +283,32 @@ async def run(args: argparse.Namespace) -> None:
         history_cache = HistoryCache(cache_path)
         history_cache.load()
 
-    progress = Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        disable=args.headless,
-    )
+    progress = MarketProgress(console=console, disable=args.headless)
 
     async with ESIClient(config=config, token=token, rate_limiter=rate_limiter, history_cache=history_cache) as esi:
         start_time = datetime.now()
         logger.info(f"Run started at {start_time}")
 
-        # Fetch market orders
-        market_orders, mkt_time = await _fetch_and_export_orders(
-            esi, config, progress, output_dir, latest_dir,
-        )
+        with progress:
+            # Fetch market orders
+            market_orders, mkt_time = await _fetch_and_export_orders(
+                esi, config, progress, output_dir, latest_dir,
+            )
 
-        # Read type IDs and resolve names
-        type_ids, type_names = await _load_type_ids_and_names_async(config, esi)
+            # Read type IDs and resolve names
+            progress.status = "  Resolving item names..."
+            type_ids, type_names = await _load_type_ids_and_names_async(config, esi)
+            progress.status = ""
 
-        # Fetch market history
-        historical_df, hist_time, history_result = await _fetch_and_export_history(
-            esi, config, progress, type_ids, type_names,
-            output_dir, latest_dir, history_cache,
-        )
+            # Fetch market history
+            def _on_item(name: str) -> None:
+                progress.status = f"  \u25b6 {name}"
+
+            historical_df, hist_time, history_result = await _fetch_and_export_history(
+                esi, config, progress, type_ids, type_names,
+                output_dir, latest_dir, history_cache,
+                on_item=_on_item,
+            )
 
         # Process data
         orders_df = pd.DataFrame(market_orders)
@@ -421,7 +422,7 @@ async def _interactive_run(args: argparse.Namespace) -> None:
         menu.add_row("[2]", "Run orders only (fetch + export orders CSV)")
         menu.add_row("[3]", "Run history only (fetch + export history CSV)")
         menu.add_row("[4]", "View current config")
-        menu.add_row("[q]", "Exit")
+        menu.add_row("\\[q]", "Exit")
         console.print(menu)
         console.print()
 
@@ -488,27 +489,28 @@ async def _interactive_run(args: argparse.Namespace) -> None:
             history_cache = HistoryCache(cache_path)
             history_cache.load()
 
-        progress = Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeElapsedColumn(),
-        )
+        progress = MarketProgress(console=console)
 
         async with ESIClient(config=config, token=token, rate_limiter=rate_limiter, history_cache=history_cache) as esi:
             start_time = datetime.now()
 
+            def _on_item(name: str) -> None:
+                progress.status = f"  \u25b6 {name}"
+
             if choice == "1":
                 # Full pipeline
-                market_orders, mkt_time = await _fetch_and_export_orders(
-                    esi, config, progress, output_dir, latest_dir,
-                )
-                type_ids, type_names = await _load_type_ids_and_names_async(config, esi)
-                historical_df, hist_time, history_result = await _fetch_and_export_history(
-                    esi, config, progress, type_ids, type_names,
-                    output_dir, latest_dir, history_cache,
-                )
+                with progress:
+                    market_orders, mkt_time = await _fetch_and_export_orders(
+                        esi, config, progress, output_dir, latest_dir,
+                    )
+                    progress.status = "  Resolving item names..."
+                    type_ids, type_names = await _load_type_ids_and_names_async(config, esi)
+                    progress.status = ""
+                    historical_df, hist_time, history_result = await _fetch_and_export_history(
+                        esi, config, progress, type_ids, type_names,
+                        output_dir, latest_dir, history_cache,
+                        on_item=_on_item,
+                    )
 
                 orders_df = pd.DataFrame(market_orders)
                 filtered = filter_orders(type_ids, orders_df)
@@ -542,9 +544,10 @@ async def _interactive_run(args: argparse.Namespace) -> None:
 
             elif choice == "2":
                 # Orders only
-                market_orders, mkt_time = await _fetch_and_export_orders(
-                    esi, config, progress, output_dir, latest_dir,
-                )
+                with progress:
+                    market_orders, mkt_time = await _fetch_and_export_orders(
+                        esi, config, progress, output_dir, latest_dir,
+                    )
                 src_folder = str(output_dir)
                 latest_folder = str(latest_dir)
                 archive_folder = str(output_dir / 'archive')
@@ -555,11 +558,15 @@ async def _interactive_run(args: argparse.Namespace) -> None:
 
             elif choice == "3":
                 # History only
-                type_ids, type_names = await _load_type_ids_and_names_async(config, esi)
-                historical_df, hist_time, history_result = await _fetch_and_export_history(
-                    esi, config, progress, type_ids, type_names,
-                    output_dir, latest_dir, history_cache,
-                )
+                with progress:
+                    progress.status = "  Resolving item names..."
+                    type_ids, type_names = await _load_type_ids_and_names_async(config, esi)
+                    progress.status = ""
+                    historical_df, hist_time, history_result = await _fetch_and_export_history(
+                        esi, config, progress, type_ids, type_names,
+                        output_dir, latest_dir, history_cache,
+                        on_item=_on_item,
+                    )
                 src_folder = str(output_dir)
                 latest_folder = str(latest_dir)
                 archive_folder = str(output_dir / 'archive')

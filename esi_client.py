@@ -7,6 +7,7 @@ market history, and SDE names via aiohttp.
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -175,6 +176,7 @@ class ESIClient:
         type_ids: list[int],
         progress: Progress | None = None,
         type_names: dict[int, str] | None = None,
+        on_item: Callable[[str], None] | None = None,
     ) -> FetchResult:
         """Fetch market history for a list of type IDs.
 
@@ -208,11 +210,13 @@ class ESIClient:
         for item in type_ids:
             items_processed += 1
 
-            # Update progress with item name if available
             if progress and task_id is not None:
+                progress.update(task_id, completed=items_processed)
+
+            # Notify caller of current item (for display on a separate line)
+            if on_item:
                 item_name = (type_names or {}).get(item, str(item))
-                display_name = item_name[:30] + "..." if len(item_name) > 30 else item_name
-                progress.update(task_id, completed=items_processed, description=f"History: {display_name}")
+                on_item(item_name)
 
             page = 1
             max_pages = 1
