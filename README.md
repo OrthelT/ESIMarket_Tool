@@ -38,7 +38,7 @@ Tool for retrieving and analyzing data from Eve Online player-owned markets. Wri
    Navigate to the directory where you want to install the app. Then:
    ```bash
    git clone https://github.com/OrthelT/ESIMarket_Tool.git
-   cd esi-market-tool # Git automatically installs in a new folder in your current directory. 
+   cd ESIMarket_Tool # Git automatically installs in a new folder in your current directory.
    ```
 
 3. Run UV sync:
