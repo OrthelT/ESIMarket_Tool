@@ -431,7 +431,7 @@ def setup_esi_settings():
         "for market history data.\n\n"
         "[hint]Structure ID: The player-owned structure to fetch orders from[/]\n"
         "[info]Common Structure IDs:[/]\n"
-        "  [value]1035466617946[/] - 4-HWWF Keepstar\n"
+        "  [value]1053970513596[/] - 4-HWWF Keepstar\n"
         "  [value]1046831245129[/] - B-9C24 Keepstar\n"
 
         "[hint]Region ID: The region for market history \n\n"
@@ -446,7 +446,7 @@ def setup_esi_settings():
     ))
     console.print()
 
-    current_structure = config.get("esi", {}).get("structure_id", 1035466617946)
+    current_structure = config.get("esi", {}).get("structure_id", 1053970513596)
     current_region = config.get("esi", {}).get("region_id", 10000003)
 
     console.print(f"[hint]Current Structure ID: [value]{current_structure}[/][/]")
@@ -1344,7 +1344,7 @@ def reset_config():
     if Confirm.ask("[warning]Are you sure you want to reset?[/]", default=False):
         default_config = {
             "esi": {
-                "structure_id": 1035466617946,
+                "structure_id": 1053970513596,
                 "region_id": 10000003,
             },
             "user_agent": {

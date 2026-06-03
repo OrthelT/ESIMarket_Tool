@@ -16,7 +16,7 @@ class ConfigurationError(Exception):
 
 @dataclass(frozen=True)
 class ESIConfig:
-    structure_id: int = 1035466617946
+    structure_id: int = 1053970513596
     region_id: int = 10000003
 
 

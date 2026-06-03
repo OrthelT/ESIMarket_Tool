@@ -5,7 +5,7 @@
 [esi]
 # Structure to monitor: 4-HWWF Keepstar in Vale of the Silent
 # Change this to your preferred player-owned structure ID
-structure_id = 1035466617946
+structure_id = 1053970513596
 
 # Region for market history: Vale of the Silent (10000003)
 # Common alternatives: The Forge/Jita (10000002), Domain/Amarr (10000043)

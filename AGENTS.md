@@ -162,7 +162,7 @@ All configuration is in `config.toml` (ships with opinionated defaults):
 
 ```toml
 [esi]
-structure_id = 1035466617946  # 4-HWWF Keepstar (default)
+structure_id = 1053970513596  # 4-HWWF Keepstar (default)
 region_id = 10000003  # Vale of the Silent (for history)
 
 [user_agent]
