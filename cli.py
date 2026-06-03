@@ -35,6 +35,7 @@ from get_jita_prices import get_jita_prices
 from file_cleanup import rename_move_and_archive_csv
 from logging_utils import setup_logging
 from progress_display import MarketProgress
+from setup import has_user_agent_contact
 
 logger: logging.Logger | None = None
 console = Console()
@@ -72,6 +73,14 @@ def _check_credentials(client_id: str | None, secret_key: str | None, headless: 
             "EVE API credentials (CLIENT_ID / SECRET_KEY) are missing or empty in .env file."
         )
         _handle_config_error(error, headless)
+
+def _verify_user_agent():
+    if not has_user_agent_contact:
+        error = ConfigurationError(
+                "CONFIGURATION ERROR: No User-Agent Configured. It is highly recommended that you configure a User-Agent or an email address."
+        )
+
+        return 
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -251,6 +260,8 @@ async def run(args: argparse.Namespace) -> None:
     client_id = os.getenv('CLIENT_ID')
     secret_key = os.getenv('SECRET_KEY')
     _check_credentials(client_id, secret_key, args.headless)
+    
+    _verify_user_agent()
 
     # 4. Output directory (CLI flag > config > default)
     if args.output_dir:

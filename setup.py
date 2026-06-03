@@ -90,7 +90,7 @@ def _has_valid_credentials() -> bool:
     )
 
 
-def _has_user_agent_contact() -> bool:
+def has_user_agent_contact() -> bool:
     """Check if user-agent has at least an email or Discord handle."""
     if not CONFIG_FILE.exists():
         return False
@@ -482,9 +482,9 @@ def setup_user_agent():
     console.print(Panel(
         "[title]User-Agent Configuration[/]\n\n"
         "We strongly recomment configuring a User-Agent header.\n"
-        "This will allow CCP to contact you if there are problems\n"
+        "This will allow Fenris to contact you if there are problems\n"
         "rather than bannning you from the ESI.\n\n"
-        "At minimum, provide an email or Discord handle.\n\n"
+        "At minimum, provide an email and if possible, a Discord handle.\n\n"
         "[hint]All other fields are optional.[/]",
         box=ROUNDED,
         border_style="info",
