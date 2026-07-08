@@ -75,7 +75,7 @@ def _check_credentials(client_id: str | None, secret_key: str | None, headless: 
         _handle_config_error(error, headless)
 
 def _verify_user_agent():
-    if not has_user_agent_contact:
+    if not has_user_agent_contact():
         error = ConfigurationError(
                 "CONFIGURATION ERROR: No User-Agent Configured. It is highly recommended that you configure a User-Agent or an email address."
         )

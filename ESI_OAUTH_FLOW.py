@@ -14,6 +14,7 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
+from oauthlib.oauth2 import OAuth2Error
 from requests_oauthlib import OAuth2Session
 
 logger = logging.getLogger(__name__)
@@ -69,9 +70,28 @@ def get_token(
         expire = oauth.token['expires_at']
         logger.info(f'Token expires at {expire}')
         if expire < time.time():
-            logger.info("Token expired, refreshing...")
-            token = oauth.refresh_token(TOKEN_URL, client_id=client_id, client_secret=secret_key)
-            _save_token(token, token_path)
+            logger.info("Access token expired, refreshing...")
+            try:
+                token = oauth.refresh_token(TOKEN_URL, client_id=client_id, client_secret=secret_key)
+                _save_token(token, token_path)
+                logger.info("Token refreshed successfully")
+            except OAuth2Error as e:
+                # The refresh token itself is expired or revoked (e.g. invalid_grant).
+                # Fall back to a fresh authorization instead of crashing.
+                logger.warning(f"Token refresh failed ({e}); re-authorization required.")
+                if headless:
+                    logger.error(
+                        "Cannot re-authorize in headless mode. "
+                        "Run interactively to complete authorization."
+                    )
+                    return None
+                return _get_authorization_code(
+                    client_id=client_id,
+                    secret_key=secret_key,
+                    requested_scope=requested_scope,
+                    token_path=token_path,
+                    user_agent=user_agent,
+                )
         return token
     else:
         if headless:

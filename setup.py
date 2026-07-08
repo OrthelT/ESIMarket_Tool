@@ -104,7 +104,7 @@ def _is_ready() -> bool:
     return (
         _has_valid_credentials()
         and CONFIG_FILE.exists()
-        and _has_user_agent_contact()
+        and has_user_agent_contact()
     )
 
 
@@ -127,7 +127,7 @@ def print_status_bar():
             missing.append("credentials")
         if not CONFIG_FILE.exists():
             missing.append("config")
-        if not _has_user_agent_contact():
+        if not has_user_agent_contact():
             missing.append("User-Agent \\[3]")
         ready_status = "[warning]Needs: " + ", ".join(missing) + "[/]"
 
