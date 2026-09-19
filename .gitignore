@@ -10,6 +10,8 @@ __pycache__/
 # Data files
 market*.csv
 jita*.csv
+*.db
+*.db*
 
 # Runtime files
 logs/
@@ -20,3 +22,6 @@ archive/
 config.toml
 *.bak
 dev.py
+
+output/
+
