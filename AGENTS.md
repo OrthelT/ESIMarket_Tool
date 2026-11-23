@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI coding agents (Claude Code, Codex, and others) working in this repository. `CLAUDE.md` is a symlink to this file — edit `AGENTS.md` only.
 
-## Refactoring Status
+## Project Reference
 
-The codebase was refactored from a monolithic `esi_markets.py` into focused modules on the `refactor-architecture` branch. The async migration (aiohttp), token bucket rate limiter, Rich progress bars, User-Agent configuration, type ID management, and setup.py ESI runner have all been completed. See **`docs/refactoring_log.md`** for detailed history and **`docs/CODE_REVIEW.md`** for the original review.
+See **`docs/project_reference.md`** for project goals, past architecture decisions, lessons learned, and open items.
 
 ## Project Overview
 
@@ -127,7 +127,7 @@ On first run, it will:
 - `MarketProgress` — composes a `Progress` (task tracker) with an explicit `Live` (display manager) inside a styled `Panel`
 - Implements `__rich__()` so Live re-renders the Panel from current state each refresh cycle
 - Duck-types as `Progress` (provides `add_task()`, `update()`) so `esi_client.py` can use it transparently
-- **Important:** Tasks must be pre-created before `with progress:` starts the Live display — adding tasks mid-display causes ghost panel artifacts. See `docs/progress_display_issue.md` for the full debugging history.
+- **Important:** Tasks must be pre-created before `with progress:` starts the Live display — adding tasks mid-display causes ghost panel artifacts. See "Lessons Learned" in `docs/project_reference.md`.
 
 **esi_markets.py** - Thin entry point
 - Delegates to `cli.main()` — preserves `pyproject.toml` entry point
@@ -269,7 +269,7 @@ Follow the pattern in `fetch_market_orders()`:
 6. Monitor `X-ESI-Error-Limit-Remain` header as safety net
 7. Implement retry with exponential backoff on failure
 8. Accept optional `progress: Progress | None` and `task_id: int | None` for Rich progress display
-9. **Progress gotcha:** If the new endpoint will run alongside other fetch methods in `asyncio.gather()`, the caller must pre-create the progress task and pass `task_id`. Do NOT call `progress.add_task()` inside the fetch method while Live is running — this causes ghost panel artifacts. See `docs/progress_display_issue.md`.
+9. **Progress gotcha:** If the new endpoint will run alongside other fetch methods in `asyncio.gather()`, the caller must pre-create the progress task and pass `task_id`. Do NOT call `progress.add_task()` inside the fetch method while Live is running — this causes ghost panel artifacts. See "Lessons Learned" in `docs/project_reference.md`.
 
 ### Modifying Data Processing
 Data flows through pandas DataFrames:
