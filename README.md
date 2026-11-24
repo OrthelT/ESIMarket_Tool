@@ -113,8 +113,8 @@ project_folder/
 │   ├── archive/            # Older files (auto-cleaned after 30 days)
 │   └── markethistory/      # Historical data (permanent)
 └── docs/
-    ├── SCHEDULING.md       # Cron/systemd/Task Scheduler setup
-    └── refactoring_log.md  # Architecture changes log
+    ├── SCHEDULING.md         # Cron/systemd/Task Scheduler setup
+    └── project_reference.md  # Design goals, decisions, lessons learned
 ```
 
 ## Google Sheets Integration Setup
@@ -322,7 +322,7 @@ The codebase follows a modular architecture with clear separation of concerns:
 - **`export.py`**: CSV writing and Google Sheets updates
 - **`file_cleanup.py`**: File archival and cleanup logic
 
-See `docs/refactoring_log.md` for detailed architecture decisions and `CLAUDE.md` for development guidance.
+See `docs/project_reference.md` for architecture decisions and `AGENTS.md` for development guidance.
 
 ## Troubleshooting
 
